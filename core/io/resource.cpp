@@ -1,36 +1,35 @@
-/*************************************************************************/
-/*  resource.cpp                                                         */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  resource.cpp                                                          */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "resource.h"
 
-#include "core/core_string_names.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "core/math/math_funcs.h"
@@ -41,7 +40,12 @@
 #include <stdio.h>
 
 void Resource::emit_changed() {
-	emit_signal(CoreStringNames::get_singleton()->changed);
+	if (ResourceLoader::is_within_load() && MessageQueue::get_main_singleton() != MessageQueue::get_singleton() && !MessageQueue::get_singleton()->is_flushing()) {
+		// Let the connection happen on the call queue, later, since signals are not thread-safe.
+		call_deferred("emit_signal", CoreStringName(changed));
+	} else {
+		emit_signal(CoreStringName(changed));
+	}
 }
 
 void Resource::_resource_path_changed() {
@@ -56,38 +60,42 @@ void Resource::set_path(const String &p_path, bool p_take_over) {
 		p_take_over = false; // Can't take over an empty path
 	}
 
-	ResourceCache::lock.lock();
+	{
+		MutexLock lock(ResourceCache::lock);
 
-	if (!path_cache.is_empty()) {
-		ResourceCache::resources.erase(path_cache);
-	}
+		if (!path_cache.is_empty()) {
+			ResourceCache::resources.erase(path_cache);
+		}
 
-	path_cache = "";
+		path_cache = "";
 
-	Ref<Resource> existing = ResourceCache::get_ref(p_path);
+		Ref<Resource> existing = ResourceCache::get_ref(p_path);
 
-	if (existing.is_valid()) {
-		if (p_take_over) {
-			existing->path_cache = String();
-			ResourceCache::resources.erase(p_path);
-		} else {
-			ResourceCache::lock.unlock();
-			ERR_FAIL_MSG("Another resource is loaded from path '" + p_path + "' (possible cyclic resource inclusion).");
+		if (existing.is_valid()) {
+			if (p_take_over) {
+				existing->path_cache = String();
+				ResourceCache::resources.erase(p_path);
+			} else {
+				ERR_FAIL_MSG("Another resource is loaded from path '" + p_path + "' (possible cyclic resource inclusion).");
+			}
+		}
+
+		path_cache = p_path;
+
+		if (!path_cache.is_empty()) {
+			ResourceCache::resources[path_cache] = this;
 		}
 	}
-
-	path_cache = p_path;
-
-	if (!path_cache.is_empty()) {
-		ResourceCache::resources[path_cache] = this;
-	}
-	ResourceCache::lock.unlock();
 
 	_resource_path_changed();
 }
 
 String Resource::get_path() const {
 	return path_cache;
+}
+
+void Resource::set_path_cache(const String &p_path) {
+	path_cache = p_path;
 }
 
 String Resource::generate_scene_unique_id() {
@@ -121,6 +129,16 @@ String Resource::generate_scene_unique_id() {
 }
 
 void Resource::set_scene_unique_id(const String &p_id) {
+	bool is_valid = true;
+	for (int i = 0; i < p_id.length(); i++) {
+		if (!is_ascii_identifier_char(p_id[i])) {
+			is_valid = false;
+			scene_unique_id = Resource::generate_scene_unique_id();
+			break;
+		}
+	}
+
+	ERR_FAIL_COND_MSG(!is_valid, "The scene unique ID must contain only letters, numbers, and underscores.");
 	scene_unique_id = p_id;
 }
 
@@ -147,15 +165,38 @@ bool Resource::editor_can_reload_from_file() {
 	return true; //by default yes
 }
 
+void Resource::connect_changed(const Callable &p_callable, uint32_t p_flags) {
+	if (ResourceLoader::is_within_load() && MessageQueue::get_main_singleton() != MessageQueue::get_singleton() && !MessageQueue::get_singleton()->is_flushing()) {
+		// Let the check and connection happen on the call queue, later, since signals are not thread-safe.
+		callable_mp(this, &Resource::connect_changed).call_deferred(p_callable, p_flags);
+		return;
+	}
+	if (!is_connected(CoreStringName(changed), p_callable) || p_flags & CONNECT_REFERENCE_COUNTED) {
+		connect(CoreStringName(changed), p_callable, p_flags);
+	}
+}
+
+void Resource::disconnect_changed(const Callable &p_callable) {
+	if (ResourceLoader::is_within_load() && MessageQueue::get_main_singleton() != MessageQueue::get_singleton() && !MessageQueue::get_singleton()->is_flushing()) {
+		// Let the check and disconnection happen on the call queue, later, since signals are not thread-safe.
+		callable_mp(this, &Resource::disconnect_changed).call_deferred(p_callable);
+		return;
+	}
+	if (is_connected(CoreStringName(changed), p_callable)) {
+		disconnect(CoreStringName(changed), p_callable);
+	}
+}
+
 void Resource::reset_state() {
 }
+
 Error Resource::copy_from(const Ref<Resource> &p_resource) {
 	ERR_FAIL_COND_V(p_resource.is_null(), ERR_INVALID_PARAMETER);
 	if (get_class() != p_resource->get_class()) {
 		return ERR_INVALID_PARAMETER;
 	}
 
-	reset_state(); //may want to reset state
+	reset_state(); // May want to reset state.
 
 	List<PropertyInfo> pi;
 	p_resource->get_property_list(&pi);
@@ -172,6 +213,7 @@ Error Resource::copy_from(const Ref<Resource> &p_resource) {
 	}
 	return OK;
 }
+
 void Resource::reload_from_file() {
 	String path = get_path();
 	if (!path.is_resource_file()) {
@@ -187,7 +229,58 @@ void Resource::reload_from_file() {
 	copy_from(s);
 }
 
-Ref<Resource> Resource::duplicate_for_local_scene(Node *p_for_scene, HashMap<Ref<Resource>, Ref<Resource>> &remap_cache) {
+void Resource::_dupe_sub_resources(Variant &r_variant, Node *p_for_scene, HashMap<Ref<Resource>, Ref<Resource>> &p_remap_cache) {
+	switch (r_variant.get_type()) {
+		case Variant::ARRAY: {
+			Array a = r_variant;
+			for (int i = 0; i < a.size(); i++) {
+				_dupe_sub_resources(a[i], p_for_scene, p_remap_cache);
+			}
+		} break;
+		case Variant::DICTIONARY: {
+			Dictionary d = r_variant;
+			List<Variant> keys;
+			d.get_key_list(&keys);
+			for (Variant &k : keys) {
+				if (k.get_type() == Variant::OBJECT) {
+					// Replace in dictionary key.
+					Ref<Resource> sr = k;
+					if (sr.is_valid() && sr->is_local_to_scene()) {
+						if (p_remap_cache.has(sr)) {
+							d[p_remap_cache[sr]] = d[k];
+							d.erase(k);
+						} else {
+							Ref<Resource> dupe = sr->duplicate_for_local_scene(p_for_scene, p_remap_cache);
+							d[dupe] = d[k];
+							d.erase(k);
+							p_remap_cache[sr] = dupe;
+						}
+					}
+				} else {
+					_dupe_sub_resources(k, p_for_scene, p_remap_cache);
+				}
+
+				_dupe_sub_resources(d[k], p_for_scene, p_remap_cache);
+			}
+		} break;
+		case Variant::OBJECT: {
+			Ref<Resource> sr = r_variant;
+			if (sr.is_valid() && sr->is_local_to_scene()) {
+				if (p_remap_cache.has(sr)) {
+					r_variant = p_remap_cache[sr];
+				} else {
+					Ref<Resource> dupe = sr->duplicate_for_local_scene(p_for_scene, p_remap_cache);
+					r_variant = dupe;
+					p_remap_cache[sr] = dupe;
+				}
+			}
+		} break;
+		default: {
+		}
+	}
+}
+
+Ref<Resource> Resource::duplicate_for_local_scene(Node *p_for_scene, HashMap<Ref<Resource>, Ref<Resource>> &p_remap_cache) {
 	List<PropertyInfo> plist;
 	get_property_list(&plist);
 
@@ -200,21 +293,9 @@ Ref<Resource> Resource::duplicate_for_local_scene(Node *p_for_scene, HashMap<Ref
 		if (!(E.usage & PROPERTY_USAGE_STORAGE)) {
 			continue;
 		}
-		Variant p = get(E.name);
-		if (p.get_type() == Variant::OBJECT) {
-			Ref<Resource> sr = p;
-			if (sr.is_valid()) {
-				if (sr->is_local_to_scene()) {
-					if (remap_cache.has(sr)) {
-						p = remap_cache[sr];
-					} else {
-						Ref<Resource> dupe = sr->duplicate_for_local_scene(p_for_scene, remap_cache);
-						p = dupe;
-						remap_cache[sr] = dupe;
-					}
-				}
-			}
-		}
+		Variant p = get(E.name).duplicate(true);
+
+		_dupe_sub_resources(p, p_for_scene, p_remap_cache);
 
 		r->set(E.name, p);
 	}
@@ -222,10 +303,39 @@ Ref<Resource> Resource::duplicate_for_local_scene(Node *p_for_scene, HashMap<Ref
 	return r;
 }
 
-void Resource::configure_for_local_scene(Node *p_for_scene, HashMap<Ref<Resource>, Ref<Resource>> &remap_cache) {
+void Resource::_find_sub_resources(const Variant &p_variant, HashSet<Ref<Resource>> &p_resources_found) {
+	switch (p_variant.get_type()) {
+		case Variant::ARRAY: {
+			Array a = p_variant;
+			for (int i = 0; i < a.size(); i++) {
+				_find_sub_resources(a[i], p_resources_found);
+			}
+		} break;
+		case Variant::DICTIONARY: {
+			Dictionary d = p_variant;
+			List<Variant> keys;
+			d.get_key_list(&keys);
+			for (const Variant &k : keys) {
+				_find_sub_resources(k, p_resources_found);
+				_find_sub_resources(d[k], p_resources_found);
+			}
+		} break;
+		case Variant::OBJECT: {
+			Ref<Resource> r = p_variant;
+			if (r.is_valid()) {
+				p_resources_found.insert(r);
+			}
+		} break;
+		default: {
+		}
+	}
+}
+
+void Resource::configure_for_local_scene(Node *p_for_scene, HashMap<Ref<Resource>, Ref<Resource>> &p_remap_cache) {
 	List<PropertyInfo> plist;
 	get_property_list(&plist);
 
+	reset_local_to_scene();
 	local_scene = p_for_scene;
 
 	for (const PropertyInfo &E : plist) {
@@ -233,14 +343,15 @@ void Resource::configure_for_local_scene(Node *p_for_scene, HashMap<Ref<Resource
 			continue;
 		}
 		Variant p = get(E.name);
-		if (p.get_type() == Variant::OBJECT) {
-			Ref<Resource> sr = p;
-			if (sr.is_valid()) {
-				if (sr->is_local_to_scene()) {
-					if (!remap_cache.has(sr)) {
-						sr->configure_for_local_scene(p_for_scene, remap_cache);
-						remap_cache[sr] = sr;
-					}
+
+		HashSet<Ref<Resource>> sub_resources;
+		_find_sub_resources(p, sub_resources);
+
+		for (Ref<Resource> sr : sub_resources) {
+			if (sr->is_local_to_scene()) {
+				if (!p_remap_cache.has(sr)) {
+					sr->configure_for_local_scene(p_for_scene, p_remap_cache);
+					p_remap_cache[sr] = sr;
 				}
 			}
 		}
@@ -260,15 +371,36 @@ Ref<Resource> Resource::duplicate(bool p_subresources) const {
 		}
 		Variant p = get(E.name);
 
-		if ((p.get_type() == Variant::DICTIONARY || p.get_type() == Variant::ARRAY)) {
-			r->set(E.name, p.duplicate(p_subresources));
-		} else if (p.get_type() == Variant::OBJECT && (p_subresources || (E.usage & PROPERTY_USAGE_DO_NOT_SHARE_ON_DUPLICATE))) {
-			Ref<Resource> sr = p;
-			if (sr.is_valid()) {
-				r->set(E.name, sr->duplicate(p_subresources));
+		switch (p.get_type()) {
+			case Variant::Type::DICTIONARY:
+			case Variant::Type::ARRAY:
+			case Variant::Type::PACKED_BYTE_ARRAY:
+			case Variant::Type::PACKED_COLOR_ARRAY:
+			case Variant::Type::PACKED_INT32_ARRAY:
+			case Variant::Type::PACKED_INT64_ARRAY:
+			case Variant::Type::PACKED_FLOAT32_ARRAY:
+			case Variant::Type::PACKED_FLOAT64_ARRAY:
+			case Variant::Type::PACKED_STRING_ARRAY:
+			case Variant::Type::PACKED_VECTOR2_ARRAY:
+			case Variant::Type::PACKED_VECTOR3_ARRAY:
+			case Variant::Type::PACKED_VECTOR4_ARRAY: {
+				r->set(E.name, p.duplicate(p_subresources));
+			} break;
+
+			case Variant::Type::OBJECT: {
+				if (!(E.usage & PROPERTY_USAGE_NEVER_DUPLICATE) && (p_subresources || (E.usage & PROPERTY_USAGE_ALWAYS_DUPLICATE))) {
+					Ref<Resource> sr = p;
+					if (sr.is_valid()) {
+						r->set(E.name, sr->duplicate(p_subresources));
+					}
+				} else {
+					r->set(E.name, p);
+				}
+			} break;
+
+			default: {
+				r->set(E.name, p);
 			}
-		} else {
-			r->set(E.name, p);
 		}
 	}
 
@@ -284,44 +416,20 @@ void Resource::_take_over_path(const String &p_path) {
 }
 
 RID Resource::get_rid() const {
-	if (get_script_instance()) {
-		Callable::CallError ce;
-		RID ret = get_script_instance()->callp(SNAME("_get_rid"), nullptr, 0, ce);
-		if (ce.error == Callable::CallError::CALL_OK && ret.is_valid()) {
-			return ret;
+	RID ret;
+	if (!GDVIRTUAL_CALL(_get_rid, ret)) {
+#ifndef DISABLE_DEPRECATED
+		if (_get_extension() && _get_extension()->get_rid) {
+			ret = RID::from_uint64(_get_extension()->get_rid(_get_extension_instance()));
 		}
+#endif
 	}
-	if (_get_extension() && _get_extension()->get_rid) {
-		RID ret;
-		ret.from_uint64(_get_extension()->get_rid(_get_extension_instance()));
-		if (ret.is_valid()) {
-			return ret;
-		}
-	}
-
-	return RID();
-}
-
-void Resource::register_owner(Object *p_owner) {
-	owners.insert(p_owner->get_instance_id());
-}
-
-void Resource::unregister_owner(Object *p_owner) {
-	owners.erase(p_owner->get_instance_id());
-}
-
-void Resource::notify_change_to_owners() {
-	for (const ObjectID &E : owners) {
-		Object *obj = ObjectDB::get_instance(E);
-		ERR_CONTINUE_MSG(!obj, "Object was deleted, while still owning a resource."); //wtf
-		//TODO store string
-		obj->call("resource_changed", Ref<Resource>(this));
-	}
+	return ret;
 }
 
 #ifdef TOOLS_ENABLED
 
-uint32_t Resource::hash_edited_version() const {
+uint32_t Resource::hash_edited_version_for_preview() const {
 	uint32_t hash = hash_murmur3_one_32(get_edited_version());
 
 	List<PropertyInfo> plist;
@@ -331,7 +439,7 @@ uint32_t Resource::hash_edited_version() const {
 		if (E.usage & PROPERTY_USAGE_STORAGE && E.type == Variant::OBJECT && E.hint == PROPERTY_HINT_RESOURCE_TYPE) {
 			Ref<Resource> res = get(E.name);
 			if (res.is_valid()) {
-				hash = hash_murmur3_one_32(res->hash_edited_version(), hash);
+				hash = hash_murmur3_one_32(res->hash_edited_version_for_preview(), hash);
 			}
 		}
 	}
@@ -362,8 +470,12 @@ Node *Resource::get_local_scene() const {
 }
 
 void Resource::setup_local_to_scene() {
-	// Can't use GDVIRTUAL in Resource, so this will have to be done with a signal
 	emit_signal(SNAME("setup_local_to_scene_requested"));
+	GDVIRTUAL_CALL(_setup_local_to_scene);
+}
+
+void Resource::reset_local_to_scene() {
+	// Restores the state as if setup_local_to_scene() hadn't been called.
 }
 
 Node *(*Resource::_get_local_scene_func)() = nullptr;
@@ -374,19 +486,13 @@ void Resource::set_as_translation_remapped(bool p_remapped) {
 		return;
 	}
 
-	ResourceCache::lock.lock();
+	MutexLock lock(ResourceCache::lock);
 
 	if (p_remapped) {
 		ResourceLoader::remapped_list.add(&remapped_list);
 	} else {
 		ResourceLoader::remapped_list.remove(&remapped_list);
 	}
-
-	ResourceCache::lock.unlock();
-}
-
-bool Resource::is_translation_remapped() const {
-	return remapped_list.in_list();
 }
 
 #ifdef TOOLS_ENABLED
@@ -427,6 +533,11 @@ void Resource::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_local_to_scene"), &Resource::is_local_to_scene);
 	ClassDB::bind_method(D_METHOD("get_local_scene"), &Resource::get_local_scene);
 	ClassDB::bind_method(D_METHOD("setup_local_to_scene"), &Resource::setup_local_to_scene);
+
+	ClassDB::bind_static_method("Resource", D_METHOD("generate_scene_unique_id"), &Resource::generate_scene_unique_id);
+	ClassDB::bind_method(D_METHOD("set_scene_unique_id", "id"), &Resource::set_scene_unique_id);
+	ClassDB::bind_method(D_METHOD("get_scene_unique_id"), &Resource::get_scene_unique_id);
+
 	ClassDB::bind_method(D_METHOD("emit_changed"), &Resource::emit_changed);
 
 	ClassDB::bind_method(D_METHOD("duplicate", "subresources"), &Resource::duplicate, DEFVAL(false));
@@ -436,25 +547,27 @@ void Resource::_bind_methods() {
 	ADD_GROUP("Resource", "resource_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "resource_local_to_scene"), "set_local_to_scene", "is_local_to_scene");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "resource_path", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_path", "get_path");
-	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "resource_name"), "set_name", "get_name");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "resource_name"), "set_name", "get_name");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "resource_scene_unique_id", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_scene_unique_id", "get_scene_unique_id");
 
-	MethodInfo get_rid_bind("_get_rid");
-	get_rid_bind.return_val.type = Variant::RID;
-
-	::ClassDB::add_virtual_method(get_class_static(), get_rid_bind, true, Vector<String>(), true);
+	GDVIRTUAL_BIND(_setup_local_to_scene);
+	GDVIRTUAL_BIND(_get_rid);
 }
 
 Resource::Resource() :
 		remapped_list(this) {}
 
 Resource::~Resource() {
-	if (!path_cache.is_empty()) {
-		ResourceCache::lock.lock();
-		ResourceCache::resources.erase(path_cache);
-		ResourceCache::lock.unlock();
+	if (unlikely(path_cache.is_empty())) {
+		return;
 	}
-	if (owners.size()) {
-		WARN_PRINT("Resource is still owned.");
+
+	MutexLock lock(ResourceCache::lock);
+	// Only unregister from the cache if this is the actual resource listed there.
+	// (Other resources can have the same value in `path_cache` if loaded with `CACHE_IGNORE`.)
+	HashMap<String, Resource *>::Iterator E = ResourceCache::resources.find(path_cache);
+	if (likely(E && E->value == this)) {
+		ResourceCache::resources.remove(E);
 	}
 }
 
@@ -469,34 +582,35 @@ RWLock ResourceCache::path_cache_lock;
 #endif
 
 void ResourceCache::clear() {
-	if (resources.size()) {
-		ERR_PRINT("Resources still in use at exit (run with --verbose for details).");
+	if (!resources.is_empty()) {
 		if (OS::get_singleton()->is_stdout_verbose()) {
+			ERR_PRINT(vformat("%d resources still in use at exit.", resources.size()));
 			for (const KeyValue<String, Resource *> &E : resources) {
 				print_line(vformat("Resource still in use: %s (%s)", E.key, E.value->get_class()));
 			}
+		} else {
+			ERR_PRINT(vformat("%d resources still in use at exit (run with --verbose for details).", resources.size()));
 		}
 	}
 
 	resources.clear();
 }
 
-void ResourceCache::reload_externals() {
-}
-
 bool ResourceCache::has(const String &p_path) {
-	lock.lock();
+	Resource **res = nullptr;
 
-	Resource **res = resources.getptr(p_path);
+	{
+		MutexLock mutex_lock(lock);
 
-	if (res && (*res)->get_reference_count() == 0) {
-		// This resource is in the process of being deleted, ignore its existence.
-		(*res)->path_cache = String();
-		resources.erase(p_path);
-		res = nullptr;
+		res = resources.getptr(p_path);
+
+		if (res && (*res)->get_reference_count() == 0) {
+			// This resource is in the process of being deleted, ignore its existence.
+			(*res)->path_cache = String();
+			resources.erase(p_path);
+			res = nullptr;
+		}
 	}
-
-	lock.unlock();
 
 	if (!res) {
 		return false;
@@ -507,38 +621,49 @@ bool ResourceCache::has(const String &p_path) {
 
 Ref<Resource> ResourceCache::get_ref(const String &p_path) {
 	Ref<Resource> ref;
-	lock.lock();
+	{
+		MutexLock mutex_lock(lock);
+		Resource **res = resources.getptr(p_path);
 
-	Resource **res = resources.getptr(p_path);
+		if (res) {
+			ref = Ref<Resource>(*res);
+		}
 
-	if (res) {
-		ref = Ref<Resource>(*res);
+		if (res && !ref.is_valid()) {
+			// This resource is in the process of being deleted, ignore its existence
+			(*res)->path_cache = String();
+			resources.erase(p_path);
+			res = nullptr;
+		}
 	}
-
-	if (res && !ref.is_valid()) {
-		// This resource is in the process of being deleted, ignore its existence
-		(*res)->path_cache = String();
-		resources.erase(p_path);
-		res = nullptr;
-	}
-
-	lock.unlock();
 
 	return ref;
 }
 
 void ResourceCache::get_cached_resources(List<Ref<Resource>> *p_resources) {
-	lock.lock();
+	MutexLock mutex_lock(lock);
+
+	LocalVector<String> to_remove;
+
 	for (KeyValue<String, Resource *> &E : resources) {
-		p_resources->push_back(Ref<Resource>(E.value));
+		Ref<Resource> ref = Ref<Resource>(E.value);
+
+		if (!ref.is_valid()) {
+			// This resource is in the process of being deleted, ignore its existence
+			E.value->path_cache = String();
+			to_remove.push_back(E.key);
+			continue;
+		}
+
+		p_resources->push_back(ref);
 	}
-	lock.unlock();
+
+	for (const String &E : to_remove) {
+		resources.erase(E);
+	}
 }
 
 int ResourceCache::get_cached_resource_count() {
-	lock.lock();
-	int rc = resources.size();
-	lock.unlock();
-
-	return rc;
+	MutexLock mutex_lock(lock);
+	return resources.size();
 }

@@ -1,44 +1,45 @@
-/*************************************************************************/
-/*  split_container.cpp                                                  */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  split_container.cpp                                                   */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "split_container.h"
 
-#include "label.h"
-#include "margin_container.h"
+#include "scene/gui/label.h"
+#include "scene/gui/margin_container.h"
+#include "scene/theme/theme_db.h"
 
 void SplitContainerDragger::gui_input(const Ref<InputEvent> &p_event) {
 	ERR_FAIL_COND(p_event.is_null());
 
 	SplitContainer *sc = Object::cast_to<SplitContainer>(get_parent());
 
-	if (sc->collapsed || !sc->_getch(0) || !sc->_getch(1) || sc->dragger_visibility != SplitContainer::DRAGGER_VISIBLE) {
+	if (sc->collapsed || !sc->_get_sortable_child(0) || !sc->_get_sortable_child(1) || sc->dragger_visibility != SplitContainer::DRAGGER_VISIBLE) {
 		return;
 	}
 
@@ -71,7 +72,7 @@ void SplitContainerDragger::gui_input(const Ref<InputEvent> &p_event) {
 
 		Vector2i in_parent_pos = get_transform().xform(mm->get_position());
 		if (!sc->vertical && is_layout_rtl()) {
-			sc->split_offset = drag_ofs - ((sc->vertical ? in_parent_pos.y : in_parent_pos.x) - drag_from);
+			sc->split_offset = drag_ofs - (in_parent_pos.x - drag_from);
 		} else {
 			sc->split_offset = drag_ofs + ((sc->vertical ? in_parent_pos.y : in_parent_pos.x) - drag_from);
 		}
@@ -96,7 +97,7 @@ void SplitContainerDragger::_notification(int p_what) {
 		case NOTIFICATION_MOUSE_ENTER: {
 			mouse_inside = true;
 			SplitContainer *sc = Object::cast_to<SplitContainer>(get_parent());
-			if (sc->get_theme_constant(SNAME("autohide"))) {
+			if (sc->theme_cache.autohide) {
 				queue_redraw();
 			}
 		} break;
@@ -104,32 +105,29 @@ void SplitContainerDragger::_notification(int p_what) {
 		case NOTIFICATION_MOUSE_EXIT: {
 			mouse_inside = false;
 			SplitContainer *sc = Object::cast_to<SplitContainer>(get_parent());
-			if (sc->get_theme_constant(SNAME("autohide"))) {
+			if (sc->theme_cache.autohide) {
 				queue_redraw();
 			}
 		} break;
 
 		case NOTIFICATION_DRAW: {
 			SplitContainer *sc = Object::cast_to<SplitContainer>(get_parent());
-			if (!dragging && !mouse_inside && sc->get_theme_constant(SNAME("autohide"))) {
+			if (!dragging && !mouse_inside && sc->theme_cache.autohide) {
 				return;
 			}
 
-			Ref<Texture2D> tex = sc->get_theme_icon(SNAME("grabber"));
+			Ref<Texture2D> tex = sc->_get_grabber_icon();
 			draw_texture(tex, (get_size() - tex->get_size()) / 2);
 		} break;
 	}
 }
 
-Control *SplitContainer::_getch(int p_idx) const {
+Control *SplitContainer::_get_sortable_child(int p_idx, SortableVisbilityMode p_visibility_mode) const {
 	int idx = 0;
 
 	for (int i = 0; i < get_child_count(false); i++) {
-		Control *c = Object::cast_to<Control>(get_child(i, false));
-		if (!c || !c->is_visible()) {
-			continue;
-		}
-		if (c->is_set_as_top_level()) {
+		Control *c = as_sortable_control(get_child(i, false), p_visibility_mode);
+		if (!c) {
 			continue;
 		}
 
@@ -156,8 +154,8 @@ Ref<Texture2D> SplitContainer::_get_grabber_icon() const {
 }
 
 void SplitContainer::_compute_middle_sep(bool p_clamp) {
-	Control *first = _getch(0);
-	Control *second = _getch(1);
+	Control *first = _get_sortable_child(0);
+	Control *second = _get_sortable_child(1);
 
 	// Determine expanded children.
 	bool first_expanded = (vertical ? first->get_v_size_flags() : first->get_h_size_flags()) & SIZE_EXPAND;
@@ -194,13 +192,12 @@ void SplitContainer::_compute_middle_sep(bool p_clamp) {
 	// Clamp the split_offset if requested.
 	if (p_clamp) {
 		split_offset -= wished_middle_sep - middle_sep;
-		p_clamp = false;
 	}
 }
 
 void SplitContainer::_resort() {
-	Control *first = _getch(0);
-	Control *second = _getch(1);
+	Control *first = _get_sortable_child(0);
+	Control *second = _get_sortable_child(1);
 
 	// If we have only one element.
 	if (!first || !second) {
@@ -261,7 +258,8 @@ Size2 SplitContainer::get_minimum_size() const {
 	int sep = (dragger_visibility != DRAGGER_HIDDEN_COLLAPSED) ? MAX(theme_cache.separation, vertical ? g->get_height() : g->get_width()) : 0;
 
 	for (int i = 0; i < 2; i++) {
-		if (!_getch(i)) {
+		Control *child = _get_sortable_child(i, SortableVisbilityMode::VISIBLE);
+		if (!child) {
 			break;
 		}
 
@@ -273,7 +271,7 @@ Size2 SplitContainer::get_minimum_size() const {
 			}
 		}
 
-		Size2 ms = _getch(i)->get_combined_minimum_size();
+		Size2 ms = child->get_combined_minimum_size();
 
 		if (vertical) {
 			minimum.height += ms.height;
@@ -291,17 +289,6 @@ void SplitContainer::_validate_property(PropertyInfo &p_property) const {
 	if (is_fixed && p_property.name == "vertical") {
 		p_property.usage = PROPERTY_USAGE_NONE;
 	}
-}
-
-void SplitContainer::_update_theme_item_cache() {
-	Container::_update_theme_item_cache();
-
-	theme_cache.separation = get_theme_constant(SNAME("separation"));
-	theme_cache.minimum_grab_thickness = get_theme_constant(SNAME("minimum_grab_thickness"));
-	theme_cache.autohide = get_theme_constant(SNAME("autohide"));
-	theme_cache.grabber_icon = get_theme_icon(SNAME("grabber"));
-	theme_cache.grabber_icon_h = get_theme_icon(SNAME("h_grabber"));
-	theme_cache.grabber_icon_v = get_theme_icon(SNAME("v_grabber"));
 }
 
 void SplitContainer::_notification(int p_what) {
@@ -336,7 +323,7 @@ int SplitContainer::get_split_offset() const {
 }
 
 void SplitContainer::clamp_split_offset() {
-	if (!_getch(0) || !_getch(1)) {
+	if (!_get_sortable_child(0) || !_get_sortable_child(1)) {
 		return;
 	}
 
@@ -429,6 +416,13 @@ void SplitContainer::_bind_methods() {
 	BIND_ENUM_CONSTANT(DRAGGER_VISIBLE);
 	BIND_ENUM_CONSTANT(DRAGGER_HIDDEN);
 	BIND_ENUM_CONSTANT(DRAGGER_HIDDEN_COLLAPSED);
+
+	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, SplitContainer, separation);
+	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, SplitContainer, minimum_grab_thickness);
+	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, SplitContainer, autohide);
+	BIND_THEME_ITEM_CUSTOM(Theme::DATA_TYPE_ICON, SplitContainer, grabber_icon, "grabber");
+	BIND_THEME_ITEM_CUSTOM(Theme::DATA_TYPE_ICON, SplitContainer, grabber_icon_h, "h_grabber");
+	BIND_THEME_ITEM_CUSTOM(Theme::DATA_TYPE_ICON, SplitContainer, grabber_icon_v, "v_grabber");
 }
 
 SplitContainer::SplitContainer(bool p_vertical) {

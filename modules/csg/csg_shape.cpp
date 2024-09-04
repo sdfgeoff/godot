@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  csg_shape.cpp                                                        */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  csg_shape.cpp                                                         */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "csg_shape.h"
 
@@ -141,7 +141,12 @@ bool CSGShape3D::is_root_shape() const {
 }
 
 void CSGShape3D::set_snap(float p_snap) {
+	if (snap == p_snap) {
+		return;
+	}
+
 	snap = p_snap;
+	_make_dirty();
 }
 
 float CSGShape3D::get_snap() const {
@@ -150,13 +155,13 @@ float CSGShape3D::get_snap() const {
 
 void CSGShape3D::_make_dirty(bool p_parent_removing) {
 	if ((p_parent_removing || is_root_shape()) && !dirty) {
-		call_deferred(SNAME("_update_shape")); // Must be deferred; otherwise, is_root_shape() will use the previous parent
+		callable_mp(this, &CSGShape3D::_update_shape).call_deferred(); // Must be deferred; otherwise, is_root_shape() will use the previous parent.
 	}
 
 	if (!is_root_shape()) {
 		parent_shape->_make_dirty();
 	} else if (!dirty) {
-		call_deferred(SNAME("_update_shape"));
+		callable_mp(this, &CSGShape3D::_update_shape).call_deferred();
 	}
 
 	dirty = true;
@@ -300,7 +305,7 @@ void CSGShape3D::_update_shape() {
 	root_mesh.unref(); //byebye root mesh
 
 	CSGBrush *n = _get_brush();
-	ERR_FAIL_COND_MSG(!n, "Cannot get CSGBrush.");
+	ERR_FAIL_NULL_MSG(n, "Cannot get CSGBrush.");
 
 	OAHashMap<Vector3, Vector3> vec_map;
 
@@ -455,27 +460,90 @@ void CSGShape3D::_update_shape() {
 	_update_collision_faces();
 }
 
-void CSGShape3D::_update_collision_faces() {
-	if (use_collision && is_root_shape() && root_collision_shape.is_valid()) {
-		CSGBrush *n = _get_brush();
-		ERR_FAIL_COND_MSG(!n, "Cannot get CSGBrush.");
-		Vector<Vector3> physics_faces;
-		physics_faces.resize(n->faces.size() * 3);
-		Vector3 *physicsw = physics_faces.ptrw();
+Vector<Vector3> CSGShape3D::_get_brush_collision_faces() {
+	Vector<Vector3> collision_faces;
+	CSGBrush *n = _get_brush();
+	ERR_FAIL_NULL_V_MSG(n, collision_faces, "Cannot get CSGBrush.");
+	collision_faces.resize(n->faces.size() * 3);
+	Vector3 *collision_faces_ptrw = collision_faces.ptrw();
 
-		for (int i = 0; i < n->faces.size(); i++) {
-			int order[3] = { 0, 1, 2 };
+	for (int i = 0; i < n->faces.size(); i++) {
+		int order[3] = { 0, 1, 2 };
 
-			if (n->faces[i].invert) {
-				SWAP(order[1], order[2]);
-			}
-
-			physicsw[i * 3 + 0] = n->faces[i].vertices[order[0]];
-			physicsw[i * 3 + 1] = n->faces[i].vertices[order[1]];
-			physicsw[i * 3 + 2] = n->faces[i].vertices[order[2]];
+		if (n->faces[i].invert) {
+			SWAP(order[1], order[2]);
 		}
 
-		root_collision_shape->set_faces(physics_faces);
+		collision_faces_ptrw[i * 3 + 0] = n->faces[i].vertices[order[0]];
+		collision_faces_ptrw[i * 3 + 1] = n->faces[i].vertices[order[1]];
+		collision_faces_ptrw[i * 3 + 2] = n->faces[i].vertices[order[2]];
+	}
+
+	return collision_faces;
+}
+
+void CSGShape3D::_update_collision_faces() {
+	if (use_collision && is_root_shape() && root_collision_shape.is_valid()) {
+		root_collision_shape->set_faces(_get_brush_collision_faces());
+
+		if (_is_debug_collision_shape_visible()) {
+			_update_debug_collision_shape();
+		}
+	}
+}
+
+Ref<ArrayMesh> CSGShape3D::bake_static_mesh() {
+	Ref<ArrayMesh> baked_mesh;
+	if (is_root_shape() && root_mesh.is_valid()) {
+		baked_mesh = root_mesh;
+	}
+	return baked_mesh;
+}
+
+Ref<ConcavePolygonShape3D> CSGShape3D::bake_collision_shape() {
+	Ref<ConcavePolygonShape3D> baked_collision_shape;
+	if (is_root_shape() && root_collision_shape.is_valid()) {
+		baked_collision_shape.instantiate();
+		baked_collision_shape->set_faces(root_collision_shape->get_faces());
+	} else if (is_root_shape()) {
+		baked_collision_shape.instantiate();
+		baked_collision_shape->set_faces(_get_brush_collision_faces());
+	}
+	return baked_collision_shape;
+}
+
+bool CSGShape3D::_is_debug_collision_shape_visible() {
+	return is_inside_tree() && (get_tree()->is_debugging_collisions_hint() || Engine::get_singleton()->is_editor_hint());
+}
+
+void CSGShape3D::_update_debug_collision_shape() {
+	if (!use_collision || !is_root_shape() || !root_collision_shape.is_valid() || !_is_debug_collision_shape_visible()) {
+		return;
+	}
+
+	ERR_FAIL_NULL(RenderingServer::get_singleton());
+
+	if (root_collision_debug_instance.is_null()) {
+		root_collision_debug_instance = RS::get_singleton()->instance_create();
+	}
+
+	Ref<Mesh> debug_mesh = root_collision_shape->get_debug_mesh();
+	RS::get_singleton()->instance_set_scenario(root_collision_debug_instance, get_world_3d()->get_scenario());
+	RS::get_singleton()->instance_set_base(root_collision_debug_instance, debug_mesh->get_rid());
+	RS::get_singleton()->instance_set_transform(root_collision_debug_instance, get_global_transform());
+}
+
+void CSGShape3D::_clear_debug_collision_shape() {
+	if (root_collision_debug_instance.is_valid()) {
+		RS::get_singleton()->free(root_collision_debug_instance);
+		root_collision_debug_instance = RID();
+	}
+}
+
+void CSGShape3D::_on_transform_changed() {
+	if (root_collision_debug_instance.is_valid() && !debug_shape_old_transform.is_equal_approx(get_global_transform())) {
+		debug_shape_old_transform = get_global_transform();
+		RS::get_singleton()->instance_set_transform(root_collision_debug_instance, debug_shape_old_transform);
 	}
 }
 
@@ -536,6 +604,11 @@ void CSGShape3D::_notification(int p_what) {
 				// Update this node's parent only if its own visibility has changed, not the visibility of parent nodes
 				parent_shape->_make_dirty();
 			}
+			if (is_visible()) {
+				_update_debug_collision_shape();
+			} else {
+				_clear_debug_collision_shape();
+			}
 			last_visible = is_visible();
 		} break;
 
@@ -558,7 +631,8 @@ void CSGShape3D::_notification(int p_what) {
 				set_collision_layer(collision_layer);
 				set_collision_mask(collision_mask);
 				set_collision_priority(collision_priority);
-				_update_collision_faces();
+				debug_shape_old_transform = get_global_transform();
+				_make_dirty();
 			}
 		} break;
 
@@ -567,6 +641,7 @@ void CSGShape3D::_notification(int p_what) {
 				PhysicsServer3D::get_singleton()->free(root_collision_instance);
 				root_collision_instance = RID();
 				root_collision_shape.unref();
+				_clear_debug_collision_shape();
 			}
 		} break;
 
@@ -574,6 +649,7 @@ void CSGShape3D::_notification(int p_what) {
 			if (use_collision && is_root_shape() && root_collision_instance.is_valid()) {
 				PhysicsServer3D::get_singleton()->body_set_state(root_collision_instance, PhysicsServer3D::BODY_STATE_TRANSFORM, get_global_transform());
 			}
+			_on_transform_changed();
 		} break;
 	}
 }
@@ -652,8 +728,11 @@ void CSGShape3D::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("get_meshes"), &CSGShape3D::get_meshes);
 
+	ClassDB::bind_method(D_METHOD("bake_static_mesh"), &CSGShape3D::bake_static_mesh);
+	ClassDB::bind_method(D_METHOD("bake_collision_shape"), &CSGShape3D::bake_collision_shape);
+
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "operation", PROPERTY_HINT_ENUM, "Union,Intersection,Subtraction"), "set_operation", "get_operation");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "snap", PROPERTY_HINT_RANGE, "0.0001,1,0.001,suffix:m"), "set_snap", "get_snap");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "snap", PROPERTY_HINT_RANGE, "0.000001,1,0.000001,suffix:m"), "set_snap", "get_snap");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "calculate_tangents"), "set_calculate_tangents", "is_calculating_tangents");
 
 	ADD_GROUP("Collision", "collision_");
@@ -753,7 +832,7 @@ CSGBrush *CSGMesh3D::_build_brush() {
 
 		if (arrays.size() == 0) {
 			_make_dirty();
-			ERR_FAIL_COND_V(arrays.size() == 0, memnew(CSGBrush));
+			ERR_FAIL_COND_V(arrays.is_empty(), memnew(CSGBrush));
 		}
 
 		Vector<Vector3> avertices = arrays[Mesh::ARRAY_VERTEX];
@@ -882,7 +961,8 @@ CSGBrush *CSGMesh3D::_build_brush() {
 
 void CSGMesh3D::_mesh_changed() {
 	_make_dirty();
-	update_gizmos();
+
+	callable_mp((Node3D *)this, &Node3D::update_gizmos).call_deferred();
 }
 
 void CSGMesh3D::set_material(const Ref<Material> &p_material) {
@@ -913,12 +993,12 @@ void CSGMesh3D::set_mesh(const Ref<Mesh> &p_mesh) {
 		return;
 	}
 	if (mesh.is_valid()) {
-		mesh->disconnect("changed", callable_mp(this, &CSGMesh3D::_mesh_changed));
+		mesh->disconnect_changed(callable_mp(this, &CSGMesh3D::_mesh_changed));
 	}
 	mesh = p_mesh;
 
 	if (mesh.is_valid()) {
-		mesh->connect("changed", callable_mp(this, &CSGMesh3D::_mesh_changed));
+		mesh->connect_changed(callable_mp(this, &CSGMesh3D::_mesh_changed));
 	}
 
 	_mesh_changed();
@@ -1254,6 +1334,30 @@ void CSGBox3D::set_size(const Vector3 &p_size) {
 Vector3 CSGBox3D::get_size() const {
 	return size;
 }
+
+#ifndef DISABLE_DEPRECATED
+// Kept for compatibility from 3.x to 4.0.
+bool CSGBox3D::_set(const StringName &p_name, const Variant &p_value) {
+	if (p_name == "width") {
+		size.x = p_value;
+		_make_dirty();
+		update_gizmos();
+		return true;
+	} else if (p_name == "height") {
+		size.y = p_value;
+		_make_dirty();
+		update_gizmos();
+		return true;
+	} else if (p_name == "depth") {
+		size.z = p_value;
+		_make_dirty();
+		update_gizmos();
+		return true;
+	} else {
+		return false;
+	}
+}
+#endif
 
 void CSGBox3D::set_material(const Ref<Material> &p_material) {
 	material = p_material;
@@ -1753,13 +1857,15 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 		Path3D *current_path = Object::cast_to<Path3D>(get_node_or_null(path_node));
 		if (path != current_path) {
 			if (path) {
-				path->disconnect("tree_exited", callable_mp(this, &CSGPolygon3D::_path_exited));
+				path->disconnect(SceneStringName(tree_exited), callable_mp(this, &CSGPolygon3D::_path_exited));
 				path->disconnect("curve_changed", callable_mp(this, &CSGPolygon3D::_path_changed));
+				path->set_update_callback(Callable());
 			}
 			path = current_path;
 			if (path) {
-				path->connect("tree_exited", callable_mp(this, &CSGPolygon3D::_path_exited));
+				path->connect(SceneStringName(tree_exited), callable_mp(this, &CSGPolygon3D::_path_exited));
 				path->connect("curve_changed", callable_mp(this, &CSGPolygon3D::_path_changed));
+				path->set_update_callback(callable_mp(this, &CSGPolygon3D::_path_changed));
 			}
 		}
 
@@ -1869,7 +1975,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 				case PATH_ROTATION_PATH:
 					break;
 				case PATH_ROTATION_PATH_FOLLOW:
-					current_up = curve->sample_baked_up_vector(0);
+					current_up = curve->sample_baked_up_vector(0, true);
 					break;
 			}
 
@@ -1956,7 +2062,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 						case PATH_ROTATION_PATH:
 							break;
 						case PATH_ROTATION_PATH_FOLLOW:
-							current_up = curve->sample_baked_up_vector(current_offset);
+							current_up = curve->sample_baked_up_vector(current_offset, true);
 							break;
 					}
 
@@ -2067,7 +2173,7 @@ CSGBrush *CSGPolygon3D::_build_brush() {
 void CSGPolygon3D::_notification(int p_what) {
 	if (p_what == NOTIFICATION_EXIT_TREE) {
 		if (path) {
-			path->disconnect("tree_exited", callable_mp(this, &CSGPolygon3D::_path_exited));
+			path->disconnect(SceneStringName(tree_exited), callable_mp(this, &CSGPolygon3D::_path_exited));
 			path->disconnect("curve_changed", callable_mp(this, &CSGPolygon3D::_path_changed));
 			path = nullptr;
 		}
@@ -2155,7 +2261,7 @@ void CSGPolygon3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "path_node", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "Path3D"), "set_path_node", "get_path_node");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "path_interval_type", PROPERTY_HINT_ENUM, "Distance,Subdivide"), "set_path_interval_type", "get_path_interval_type");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_interval", PROPERTY_HINT_RANGE, "0.01,1.0,0.01,exp,or_greater"), "set_path_interval", "get_path_interval");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_simplify_angle", PROPERTY_HINT_RANGE, "0.0,180.0,0.1,exp"), "set_path_simplify_angle", "get_path_simplify_angle");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_simplify_angle", PROPERTY_HINT_RANGE, "0.0,180.0,0.1"), "set_path_simplify_angle", "get_path_simplify_angle");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "path_rotation", PROPERTY_HINT_ENUM, "Polygon,Path,PathFollow"), "set_path_rotation", "get_path_rotation");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_local"), "set_path_local", "is_path_local");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_continuous_u"), "set_path_continuous_u", "is_path_continuous_u");

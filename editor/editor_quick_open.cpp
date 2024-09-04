@@ -1,48 +1,58 @@
-/*************************************************************************/
-/*  editor_quick_open.cpp                                                */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  editor_quick_open.cpp                                                 */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "editor_quick_open.h"
 
 #include "core/os/keyboard.h"
 #include "editor/editor_node.h"
+#include "editor/editor_string_names.h"
+#include "editor/themes/editor_scale.h"
 
-void EditorQuickOpen::popup_dialog(const StringName &p_base, bool p_enable_multi, bool p_dontclear) {
+Rect2i EditorQuickOpen::prev_rect = Rect2i();
+bool EditorQuickOpen::was_showed = false;
+
+void EditorQuickOpen::popup_dialog(const String &p_base, bool p_enable_multi, bool p_dont_clear) {
 	base_type = p_base;
 	allow_multi_select = p_enable_multi;
 	search_options->set_select_mode(allow_multi_select ? Tree::SELECT_MULTI : Tree::SELECT_SINGLE);
-	popup_centered_clamped(Size2i(600, 440), 0.8f);
+
+	if (was_showed) {
+		popup(prev_rect);
+	} else {
+		popup_centered_clamped(Size2(600, 440) * EDSCALE, 0.8f);
+	}
 
 	EditorFileSystemDirectory *efsd = EditorFileSystem::get_singleton()->get_filesystem();
 	_build_search_cache(efsd);
 
-	if (p_dontclear) {
+	if (p_dont_clear) {
 		search_box->select_all();
 		_update_search();
 	} else {
@@ -56,22 +66,13 @@ void EditorQuickOpen::_build_search_cache(EditorFileSystemDirectory *p_efsd) {
 		_build_search_cache(p_efsd->get_subdir(i));
 	}
 
-	Vector<String> base_types = String(base_type).split(String(","));
+	Vector<String> base_types = base_type.split(",");
 	for (int i = 0; i < p_efsd->get_file_count(); i++) {
 		String file = p_efsd->get_file_path(i);
 		String engine_type = p_efsd->get_file_type(i);
-		// TODO: Fix lack of caching for resource's script's global class name (if applicable).
-		String script_type;
-		if (_load_resources) {
-			Ref<Resource> res = ResourceLoader::load(file);
-			if (res.is_valid()) {
-				Ref<Script> scr = res->get_script();
-				if (scr.is_valid()) {
-					script_type = scr->get_language()->get_global_class_name(file);
-				}
-			}
-		}
+		String script_type = p_efsd->get_file_resource_script_class(i);
 		String actual_type = script_type.is_empty() ? engine_type : script_type;
+
 		// Iterate all possible base types.
 		for (String &parent_type : base_types) {
 			if (ClassDB::is_parent_class(engine_type, parent_type) || EditorNode::get_editor_data().script_class_is_parent(script_type, parent_type)) {
@@ -80,7 +81,7 @@ void EditorQuickOpen::_build_search_cache(EditorFileSystemDirectory *p_efsd) {
 				// Store refs to used icons.
 				String ext = file.get_extension();
 				if (!icons.has(ext)) {
-					icons.insert(ext, get_theme_icon((has_theme_icon(actual_type, SNAME("EditorIcons")) ? actual_type : String("Object")), SNAME("EditorIcons")));
+					icons.insert(ext, EditorNode::get_singleton()->get_class_icon(actual_type, "Object"));
 				}
 
 				// Stop testing base types as soon as we got a match.
@@ -91,17 +92,21 @@ void EditorQuickOpen::_build_search_cache(EditorFileSystemDirectory *p_efsd) {
 }
 
 void EditorQuickOpen::_update_search() {
-	const String search_text = search_box->get_text();
-	const bool empty_search = search_text.is_empty();
+	const PackedStringArray search_tokens = search_box->get_text().to_lower().replace("/", " ").split(" ", false);
+	const bool empty_search = search_tokens.is_empty();
 
 	// Filter possible candidates.
 	Vector<Entry> entries;
 	for (int i = 0; i < files.size(); i++) {
-		if (empty_search || search_text.is_subsequence_ofn(files[i])) {
-			Entry r;
-			r.path = files[i];
-			r.score = empty_search ? 0 : _score_path(search_text, files[i].to_lower());
+		Entry r;
+		r.path = files[i];
+		if (empty_search) {
 			entries.push_back(r);
+		} else {
+			r.score = _score_search_result(search_tokens, r.path.to_lower());
+			if (r.score > 0) {
+				entries.push_back(r);
+			}
 		}
 	}
 
@@ -115,10 +120,12 @@ void EditorQuickOpen::_update_search() {
 			sorter.sort(entries.ptrw(), entries.size());
 		}
 
+		const int class_icon_size = search_options->get_theme_constant(SNAME("class_icon_size"), EditorStringName(Editor));
 		const int entry_limit = MIN(entries.size(), 300);
 		for (int i = 0; i < entry_limit; i++) {
 			TreeItem *ti = search_options->create_item(root);
 			ti->set_text(0, entries[i].path);
+			ti->set_icon_max_width(0, class_icon_size);
 			ti->set_icon(0, *icons.lookup_ptr(entries[i].path.get_extension()));
 		}
 
@@ -135,23 +142,42 @@ void EditorQuickOpen::_update_search() {
 	}
 }
 
-float EditorQuickOpen::_score_path(const String &p_search, const String &p_path) {
-	float score = 0.9f + .1f * (p_search.length() / (float)p_path.length());
+float EditorQuickOpen::_score_search_result(const PackedStringArray &p_search_tokens, const String &p_path) {
+	float score = 0.0f;
+	int prev_min_match_idx = -1;
 
-	// Exact match.
-	if (p_search == p_path) {
-		return 1.2f;
+	for (const String &s : p_search_tokens) {
+		int min_match_idx = p_path.find(s);
+
+		if (min_match_idx == -1) {
+			return 0.0f;
+		}
+
+		float token_score = s.length();
+
+		int max_match_idx = p_path.rfind(s);
+
+		// Prioritize the actual file name over folder.
+		if (max_match_idx > p_path.rfind("/")) {
+			token_score *= 2.0f;
+		}
+
+		// Prioritize matches at the front of the path token.
+		if (min_match_idx == 0 || p_path.contains("/" + s)) {
+			token_score += 1.0f;
+		}
+
+		score += token_score;
+
+		// Prioritize tokens which appear in order.
+		if (prev_min_match_idx != -1 && max_match_idx > prev_min_match_idx) {
+			score += 1.0f;
+		}
+
+		prev_min_match_idx = min_match_idx;
 	}
 
-	// Positive bias for matches close to the beginning of the file name.
-	String file = p_path.get_file();
-	int pos = file.findn(p_search);
-	if (pos != -1) {
-		return score * (1.0f - 0.1f * (float(pos) / file.length()));
-	}
-
-	// Similarity
-	return p_path.to_lower().similarity(p_search.to_lower());
+	return score;
 }
 
 void EditorQuickOpen::_confirmed() {
@@ -231,26 +257,33 @@ Vector<String> EditorQuickOpen::get_selected_files() const {
 	return selected_files;
 }
 
-StringName EditorQuickOpen::get_base_type() const {
+String EditorQuickOpen::get_base_type() const {
 	return base_type;
 }
 
 void EditorQuickOpen::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_ENTER_TREE: {
-			connect("confirmed", callable_mp(this, &EditorQuickOpen::_confirmed));
+			connect(SceneStringName(confirmed), callable_mp(this, &EditorQuickOpen::_confirmed));
 
 			search_box->set_clear_button_enabled(true);
 		} break;
 
+		case NOTIFICATION_VISIBILITY_CHANGED: {
+			if (!is_visible()) {
+				prev_rect = Rect2i(get_position(), get_size());
+				was_showed = true;
+			}
+		} break;
+
+		case NOTIFICATION_THEME_CHANGED: {
+			search_box->set_right_icon(get_editor_theme_icon(SNAME("Search")));
+		} break;
+
 		case NOTIFICATION_EXIT_TREE: {
-			disconnect("confirmed", callable_mp(this, &EditorQuickOpen::_confirmed));
+			disconnect(SceneStringName(confirmed), callable_mp(this, &EditorQuickOpen::_confirmed));
 		} break;
 	}
-}
-
-void EditorQuickOpen::_theme_changed() {
-	search_box->set_right_icon(search_options->get_theme_icon(SNAME("Search"), SNAME("EditorIcons")));
 }
 
 void EditorQuickOpen::_bind_methods() {
@@ -259,16 +292,16 @@ void EditorQuickOpen::_bind_methods() {
 
 EditorQuickOpen::EditorQuickOpen() {
 	VBoxContainer *vbc = memnew(VBoxContainer);
-	vbc->connect("theme_changed", callable_mp(this, &EditorQuickOpen::_theme_changed));
 	add_child(vbc);
 
 	search_box = memnew(LineEdit);
-	search_box->connect("text_changed", callable_mp(this, &EditorQuickOpen::_text_changed));
-	search_box->connect("gui_input", callable_mp(this, &EditorQuickOpen::_sbox_input));
+	search_box->connect(SceneStringName(text_changed), callable_mp(this, &EditorQuickOpen::_text_changed));
+	search_box->connect(SceneStringName(gui_input), callable_mp(this, &EditorQuickOpen::_sbox_input));
 	vbc->add_margin_child(TTR("Search:"), search_box);
 	register_text_enter(search_box);
 
 	search_options = memnew(Tree);
+	search_options->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
 	search_options->connect("item_activated", callable_mp(this, &EditorQuickOpen::_confirmed));
 	search_options->create_item();
 	search_options->set_hide_root(true);

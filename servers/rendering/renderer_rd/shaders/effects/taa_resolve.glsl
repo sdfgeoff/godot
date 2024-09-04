@@ -32,7 +32,9 @@
 // Based on Spartan Engine's TAA implementation (without TAA upscale).
 // <https://github.com/PanosK92/SpartanEngine/blob/a8338d0609b85dc32f3732a5c27fb4463816a3b9/Data/shaders/temporal_antialiasing.hlsl>
 
+#ifndef MOLTENVK_USED
 #define USE_SUBGROUPS
+#endif // MOLTENVK_USED
 
 #define GROUP_SIZE 8
 #define FLT_MIN 0.00000001
@@ -305,6 +307,8 @@ float luminance(vec3 color) {
 	return max(dot(color, lumCoeff), 0.0001f);
 }
 
+// This is "velocity disocclusion" as described by https://www.elopezr.com/temporal-aa-and-the-quest-for-the-holy-trail/.
+// We use texel space, so our scale and threshold differ.
 float get_factor_disocclusion(vec2 uv_reprojected, vec2 velocity) {
 	vec2 velocity_previous = imageLoad(last_velocity_buffer, ivec2(uv_reprojected * params.resolution)).xy;
 	vec2 velocity_texels = velocity * params.resolution;
@@ -318,7 +322,7 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 	vec2 velocity = imageLoad(velocity_buffer, ivec2(pos_screen)).xy;
 
 	// Get reprojected uv
-	vec2 uv_reprojected = uv - velocity;
+	vec2 uv_reprojected = uv + velocity;
 
 	// Get input color
 	vec3 color_input = load_color(pos_group);
@@ -334,7 +338,7 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 	// Compute blend factor
 	float blend_factor = RPC_16; // We want to be able to accumulate as many jitter samples as we generated, that is, 16.
 	{
-		// If re-projected UV is out of screen, converge to current color immediatel
+		// If re-projected UV is out of screen, converge to current color immediately.
 		float factor_screen = any(lessThan(uv_reprojected, vec2(0.0))) || any(greaterThan(uv_reprojected, vec2(1.0))) ? 1.0 : 0.0;
 
 		// Increase blend factor when there is disocclusion (fixes a lot of the remaining ghosting).

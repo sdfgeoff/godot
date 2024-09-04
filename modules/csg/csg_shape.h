@@ -1,42 +1,42 @@
-/*************************************************************************/
-/*  csg_shape.h                                                          */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  csg_shape.h                                                           */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef CSG_SHAPE_H
 #define CSG_SHAPE_H
 
-#define CSGJS_HEADER_ONLY
-
 #include "csg.h"
+
 #include "scene/3d/path_3d.h"
 #include "scene/3d/visual_instance_3d.h"
-#include "scene/resources/concave_polygon_shape_3d.h"
+#include "scene/resources/3d/concave_polygon_shape_3d.h"
+
 #include "thirdparty/misc/mikktspace.h"
 
 class CSGShape3D : public GeometryInstance3D {
@@ -68,6 +68,8 @@ private:
 	real_t collision_priority = 1.0;
 	Ref<ConcavePolygonShape3D> root_collision_shape;
 	RID root_collision_instance;
+	RID root_collision_debug_instance;
+	Transform3D debug_shape_old_transform;
 
 	bool calculate_tangents = true;
 
@@ -107,6 +109,11 @@ private:
 
 	void _update_shape();
 	void _update_collision_faces();
+	bool _is_debug_collision_shape_visible();
+	void _update_debug_collision_shape();
+	void _clear_debug_collision_shape();
+	void _on_transform_changed();
+	Vector<Vector3> _get_brush_collision_faces();
 
 protected:
 	void _notification(int p_what);
@@ -155,6 +162,10 @@ public:
 	bool is_calculating_tangents() const;
 
 	bool is_root_shape() const;
+
+	Ref<ArrayMesh> bake_static_mesh();
+	Ref<ConcavePolygonShape3D> bake_collision_shape();
+
 	CSGShape3D();
 	~CSGShape3D();
 };
@@ -248,6 +259,10 @@ class CSGBox3D : public CSGPrimitive3D {
 
 protected:
 	static void _bind_methods();
+#ifndef DISABLE_DEPRECATED
+	// Kept for compatibility from 3.x to 4.0.
+	bool _set(const StringName &p_name, const Variant &p_value);
+#endif
 
 public:
 	void set_size(const Vector3 &p_size);

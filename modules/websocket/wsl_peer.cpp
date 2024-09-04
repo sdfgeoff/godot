@@ -1,38 +1,36 @@
-/*************************************************************************/
-/*  wsl_peer.cpp                                                         */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  wsl_peer.cpp                                                          */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
+#include "wsl_peer.h"
 
 #ifndef WEB_ENABLED
-
-#include "wsl_peer.h"
-
-#include "wsl_peer.h"
 
 #include "core/io/stream_peer_tls.h"
 
@@ -101,6 +99,7 @@ void WSLPeer::Resolver::try_next_candidate(Ref<StreamPeerTCP> &p_tcp) {
 		p_tcp->poll();
 		StreamPeerTCP::Status status = p_tcp->get_status();
 		if (status == StreamPeerTCP::STATUS_CONNECTED) {
+			// On Windows, setting TCP_NODELAY may fail if the socket is still connecting.
 			p_tcp->set_no_delay(true);
 			ip_candidates.clear();
 			return;
@@ -126,8 +125,8 @@ void WSLPeer::Resolver::try_next_candidate(Ref<StreamPeerTCP> &p_tcp) {
 /// Server functions
 ///
 Error WSLPeer::accept_stream(Ref<StreamPeer> p_stream) {
-	ERR_FAIL_COND_V(wsl_ctx || tcp.is_valid(), ERR_ALREADY_IN_USE);
 	ERR_FAIL_COND_V(p_stream.is_null(), ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(ready_state != STATE_CLOSED && ready_state != STATE_CLOSING, ERR_ALREADY_IN_USE);
 
 	_clear();
 
@@ -144,6 +143,7 @@ Error WSLPeer::accept_stream(Ref<StreamPeer> p_stream) {
 	}
 	ERR_FAIL_COND_V(connection.is_null() || tcp.is_null(), ERR_INVALID_PARAMETER);
 	is_server = true;
+	tcp->set_no_delay(true);
 	ready_state = STATE_CONNECTING;
 	handshake_buffer->resize(WSL_MAX_HEADER_SIZE);
 	handshake_buffer->seek(0);
@@ -312,7 +312,7 @@ void WSLPeer::_do_client_handshake() {
 	ERR_FAIL_COND(tcp.is_null());
 
 	// Try to connect to candidates.
-	if (resolver.has_more_candidates()) {
+	if (resolver.has_more_candidates() || tcp->get_status() == StreamPeerTCP::STATUS_CONNECTING) {
 		resolver.try_next_candidate(tcp);
 		if (resolver.has_more_candidates()) {
 			return; // Still pending.
@@ -332,9 +332,8 @@ void WSLPeer::_do_client_handshake() {
 		if (connection == tcp) {
 			// Start SSL handshake
 			tls = Ref<StreamPeerTLS>(StreamPeerTLS::create());
-			ERR_FAIL_COND_MSG(tls.is_null(), "SSL is not available in this build.");
-			tls->set_blocking_handshake_enabled(false);
-			if (tls->connect_to_stream(tcp, verify_tls, requested_host, tls_cert) != OK) {
+			ERR_FAIL_COND(tls.is_null());
+			if (tls->connect_to_stream(tcp, requested_host, tls_options) != OK) {
 				close(-1);
 				return; // Error.
 			}
@@ -380,7 +379,6 @@ void WSLPeer::_do_client_handshake() {
 				// Header is too big
 				close(-1);
 				ERR_FAIL_MSG("Response headers too big.");
-				return;
 			}
 
 			uint8_t byte;
@@ -403,7 +401,6 @@ void WSLPeer::_do_client_handshake() {
 				if (!_verify_server_response()) {
 					close(-1);
 					ERR_FAIL_MSG("Invalid response headers.");
-					return;
 				}
 				wslay_event_context_client_init(&wsl_ctx, &_wsl_callbacks, this);
 				wslay_event_config_set_max_recv_msg_length(wsl_ctx, inbound_buffer_size);
@@ -470,15 +467,15 @@ bool WSLPeer::_verify_server_response() {
 		}
 		if (!valid) {
 			ERR_FAIL_V_MSG(false, "Received unrequested sub-protocol -> " + selected_protocol);
-			return false;
 		}
 	}
 	return true;
 }
 
-Error WSLPeer::connect_to_url(const String &p_url, bool p_verify_tls, Ref<X509Certificate> p_cert) {
-	ERR_FAIL_COND_V(wsl_ctx || tcp.is_valid(), ERR_ALREADY_IN_USE);
+Error WSLPeer::connect_to_url(const String &p_url, Ref<TLSOptions> p_options) {
 	ERR_FAIL_COND_V(p_url.is_empty(), ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_options.is_valid() && p_options->is_server(), ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(ready_state != STATE_CLOSED && ready_state != STATE_CLOSING, ERR_ALREADY_IN_USE);
 
 	_clear();
 
@@ -504,10 +501,17 @@ Error WSLPeer::connect_to_url(const String &p_url, bool p_verify_tls, Ref<X509Ce
 		path = "/";
 	}
 
+	ERR_FAIL_COND_V_MSG(use_tls && !StreamPeerTLS::is_available(), ERR_UNAVAILABLE, "WSS is not available in this build.");
+
 	requested_url = p_url;
 	requested_host = host;
-	verify_tls = p_verify_tls;
-	tls_cert = p_cert;
+
+	if (p_options.is_valid()) {
+		tls_options = p_options;
+	} else {
+		tls_options = TLSOptions::client();
+	}
+
 	tcp.instantiate();
 
 	resolver.start(host, port);
@@ -598,7 +602,7 @@ ssize_t WSLPeer::_wsl_send_callback(wslay_event_context_ptr ctx, const uint8_t *
 }
 
 int WSLPeer::_wsl_genmask_callback(wslay_event_context_ptr ctx, uint8_t *buf, size_t len, void *user_data) {
-	ERR_FAIL_COND_V(!_static_rng, WSLAY_ERR_CALLBACK_FAILURE);
+	ERR_FAIL_NULL_V(_static_rng, WSLAY_ERR_CALLBACK_FAILURE);
 	Error err = _static_rng->get_random_bytes(buf, len);
 	ERR_FAIL_COND_V(err != OK, WSLAY_ERR_CALLBACK_FAILURE);
 	return 0;
@@ -674,7 +678,7 @@ void WSLPeer::poll() {
 	}
 
 	if (ready_state == STATE_OPEN || ready_state == STATE_CLOSING) {
-		ERR_FAIL_COND(!wsl_ctx);
+		ERR_FAIL_NULL(wsl_ctx);
 		int err = 0;
 		if ((err = wslay_event_recv(wsl_ctx)) != 0 || (err = wslay_event_send(wsl_ctx)) != 0) {
 			// Error close.

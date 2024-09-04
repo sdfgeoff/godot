@@ -96,7 +96,7 @@ internal class GenerateUnmanagedCallbacksAttribute : Attribute
 
         INamespaceSymbol namespaceSymbol = symbol.ContainingNamespace;
         string classNs = namespaceSymbol != null && !namespaceSymbol.IsGlobalNamespace ?
-            namespaceSymbol.FullQualifiedName() :
+            namespaceSymbol.FullQualifiedNameOmitGlobal() :
             string.Empty;
         bool hasNamespace = classNs.Length != 0;
         bool isInnerClass = symbol.ContainingType != null;
@@ -128,23 +128,27 @@ using Godot.NativeInterop;
         if (isInnerClass)
         {
             var containingType = symbol.ContainingType;
+            AppendPartialContainingTypeDeclarations(containingType);
 
-            while (containingType != null)
+            void AppendPartialContainingTypeDeclarations(INamedTypeSymbol? containingType)
             {
+                if (containingType == null)
+                    return;
+
+                AppendPartialContainingTypeDeclarations(containingType.ContainingType);
+
                 source.Append("partial ");
                 source.Append(containingType.GetDeclarationKeyword());
                 source.Append(" ");
                 source.Append(containingType.NameWithTypeParameters());
                 source.Append("\n{\n");
-
-                containingType = containingType.ContainingType;
             }
         }
 
         source.Append("[System.Runtime.CompilerServices.SkipLocalsInit]\n");
         source.Append($"unsafe partial class {symbol.Name}\n");
         source.Append("{\n");
-        source.Append($"    private static {data.FuncStructSymbol.FullQualifiedName()} _unmanagedCallbacks;\n\n");
+        source.Append($"    private static {data.FuncStructSymbol.FullQualifiedNameIncludeGlobal()} _unmanagedCallbacks;\n\n");
 
         foreach (var callback in data.Methods)
         {
@@ -159,7 +163,7 @@ using Godot.NativeInterop;
                 source.Append("static ");
 
             source.Append("partial ");
-            source.Append(callback.ReturnType.FullQualifiedName());
+            source.Append(callback.ReturnType.FullQualifiedNameIncludeGlobal());
             source.Append(' ');
             source.Append(callback.Name);
             source.Append('(');
@@ -168,7 +172,9 @@ using Godot.NativeInterop;
             {
                 var parameter = callback.Parameters[i];
 
-                source.Append(parameter.ToDisplayString());
+                AppendRefKind(source, parameter.RefKind);
+                source.Append(' ');
+                source.Append(parameter.Type.FullQualifiedNameIncludeGlobal());
                 source.Append(' ');
                 source.Append(parameter.Name);
 
@@ -228,7 +234,7 @@ using Godot.NativeInterop;
             if (!callback.ReturnsVoid)
             {
                 if (methodSourceAfterCall.Length != 0)
-                    source.Append($"{callback.ReturnType.FullQualifiedName()} ret = ");
+                    source.Append($"{callback.ReturnType.FullQualifiedNameIncludeGlobal()} ret = ");
                 else
                     source.Append("return ");
             }
@@ -267,7 +273,7 @@ using Godot.NativeInterop;
 
         source.Append("\n\n#pragma warning restore CA1707\n");
 
-        context.AddSource($"{data.NativeTypeSymbol.FullQualifiedName().SanitizeQualifiedNameForUniqueHint()}.generated",
+        context.AddSource($"{data.NativeTypeSymbol.FullQualifiedNameOmitGlobal().SanitizeQualifiedNameForUniqueHint()}.generated",
             SourceText.From(source.ToString(), Encoding.UTF8));
     }
 
@@ -277,7 +283,7 @@ using Godot.NativeInterop;
 
         INamespaceSymbol namespaceSymbol = symbol.ContainingNamespace;
         string classNs = namespaceSymbol != null && !namespaceSymbol.IsGlobalNamespace ?
-            namespaceSymbol.FullQualifiedName() :
+            namespaceSymbol.FullQualifiedNameOmitGlobal() :
             string.Empty;
         bool hasNamespace = classNs.Length != 0;
         bool isInnerClass = symbol.ContainingType != null;
@@ -301,16 +307,20 @@ using Godot.NativeInterop;
         if (isInnerClass)
         {
             var containingType = symbol.ContainingType;
+            AppendPartialContainingTypeDeclarations(containingType);
 
-            while (containingType != null)
+            void AppendPartialContainingTypeDeclarations(INamedTypeSymbol? containingType)
             {
+                if (containingType == null)
+                    return;
+
+                AppendPartialContainingTypeDeclarations(containingType.ContainingType);
+
                 source.Append("partial ");
                 source.Append(containingType.GetDeclarationKeyword());
                 source.Append(" ");
                 source.Append(containingType.NameWithTypeParameters());
                 source.Append("\n{\n");
-
-                containingType = containingType.ContainingType;
             }
         }
 
@@ -338,18 +348,18 @@ using Godot.NativeInterop;
                         // just pass it by-ref and let it be pinned.
                         AppendRefKind(source, parameter.RefKind)
                             .Append(' ')
-                            .Append(parameter.Type.FullQualifiedName());
+                            .Append(parameter.Type.FullQualifiedNameIncludeGlobal());
                     }
                 }
                 else
                 {
-                    source.Append(parameter.Type.FullQualifiedName());
+                    source.Append(parameter.Type.FullQualifiedNameIncludeGlobal());
                 }
 
                 source.Append(", ");
             }
 
-            source.Append(callback.ReturnType.FullQualifiedName());
+            source.Append(callback.ReturnType.FullQualifiedNameIncludeGlobal());
             source.Append($"> {callback.Name};\n");
         }
 
@@ -372,12 +382,12 @@ using Godot.NativeInterop;
 
         source.Append("\n#pragma warning restore CA1707\n");
 
-        context.AddSource($"{symbol.FullQualifiedName().SanitizeQualifiedNameForUniqueHint()}.generated",
+        context.AddSource($"{symbol.FullQualifiedNameOmitGlobal().SanitizeQualifiedNameForUniqueHint()}.generated",
             SourceText.From(source.ToString(), Encoding.UTF8));
     }
 
     private static bool IsGodotInteropStruct(ITypeSymbol type) =>
-        GodotInteropStructs.Contains(type.FullQualifiedName());
+        _godotInteropStructs.Contains(type.FullQualifiedNameOmitGlobal());
 
     private static bool IsByRefParameter(IParameterSymbol parameter) =>
         parameter.RefKind is RefKind.In or RefKind.Out or RefKind.Ref;
@@ -393,7 +403,7 @@ using Godot.NativeInterop;
 
     private static void AppendPointerType(StringBuilder source, ITypeSymbol type)
     {
-        source.Append(type.FullQualifiedName());
+        source.Append(type.FullQualifiedNameIncludeGlobal());
         source.Append('*');
     }
 
@@ -426,7 +436,7 @@ using Godot.NativeInterop;
     {
         varName = $"{parameter.Name}_copy";
 
-        source.Append(parameter.Type.FullQualifiedName());
+        source.Append(parameter.Type.FullQualifiedNameIncludeGlobal());
         source.Append(' ');
         source.Append(varName);
         if (parameter.RefKind is RefKind.In or RefKind.Ref)
@@ -438,7 +448,7 @@ using Godot.NativeInterop;
         source.Append(";\n");
     }
 
-    private static readonly string[] GodotInteropStructs =
+    private static readonly string[] _godotInteropStructs =
     {
         "Godot.NativeInterop.godot_ref",
         "Godot.NativeInterop.godot_variant_call_error",
@@ -458,6 +468,7 @@ using Godot.NativeInterop;
         "Godot.NativeInterop.godot_packed_string_array",
         "Godot.NativeInterop.godot_packed_vector2_array",
         "Godot.NativeInterop.godot_packed_vector3_array",
+        "Godot.NativeInterop.godot_packed_vector4_array",
         "Godot.NativeInterop.godot_packed_color_array",
     };
 }

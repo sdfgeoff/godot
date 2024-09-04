@@ -1,43 +1,56 @@
-/*************************************************************************/
-/*  rich_text_label.h                                                    */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  rich_text_label.h                                                     */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef RICH_TEXT_LABEL_H
 #define RICH_TEXT_LABEL_H
 
-#include "rich_text_effect.h"
+#include "core/object/worker_thread_pool.h"
+#include "core/templates/rid_owner.h"
 #include "scene/gui/popup_menu.h"
 #include "scene/gui/scroll_bar.h"
 #include "scene/resources/text_paragraph.h"
 
+class CharFXTransform;
+class RichTextEffect;
+
 class RichTextLabel : public Control {
 	GDCLASS(RichTextLabel, Control);
+
+	enum RTLDrawStep {
+		DRAW_STEP_BACKGROUND,
+		DRAW_STEP_SHADOW,
+		DRAW_STEP_OUTLINE,
+		DRAW_STEP_TEXT,
+		DRAW_STEP_FOREGROUND,
+		DRAW_STEP_MAX,
+	};
 
 public:
 	enum ListType {
@@ -45,6 +58,12 @@ public:
 		LIST_LETTERS,
 		LIST_ROMAN,
 		LIST_DOTS
+	};
+
+	enum MetaUnderline {
+		META_UNDERLINE_NEVER,
+		META_UNDERLINE_ALWAYS,
+		META_UNDERLINE_ON_HOVER,
 	};
 
 	enum ItemType {
@@ -69,17 +88,21 @@ public:
 		ITEM_WAVE,
 		ITEM_TORNADO,
 		ITEM_RAINBOW,
+		ITEM_PULSE,
 		ITEM_BGCOLOR,
 		ITEM_FGCOLOR,
 		ITEM_META,
 		ITEM_HINT,
 		ITEM_DROPCAP,
-		ITEM_CUSTOMFX
+		ITEM_CUSTOMFX,
+		ITEM_CONTEXT,
+		ITEM_LANGUAGE,
 	};
 
 	enum MenuItems {
 		MENU_COPY,
 		MENU_SELECT_ALL,
+		MENU_MAX
 	};
 
 	enum DefaultFont {
@@ -91,10 +114,29 @@ public:
 		CUSTOM_FONT,
 	};
 
+	enum ImageUpdateMask {
+		UPDATE_TEXTURE = 1 << 0,
+		UPDATE_SIZE = 1 << 1,
+		UPDATE_COLOR = 1 << 2,
+		UPDATE_ALIGNMENT = 1 << 3,
+		UPDATE_REGION = 1 << 4,
+		UPDATE_PAD = 1 << 5,
+		UPDATE_TOOLTIP = 1 << 6,
+		UPDATE_WIDTH_IN_PERCENT = 1 << 7,
+	};
+
 protected:
 	virtual void _update_theme_item_cache() override;
+
 	void _notification(int p_what);
 	static void _bind_methods();
+
+#ifndef DISABLE_DEPRECATED
+	void _push_meta_bind_compat_89024(const Variant &p_meta);
+	void _add_image_bind_compat_80410(const Ref<Texture2D> &p_image, const int p_width, const int p_height, const Color &p_color, InlineAlignment p_alignment, const Rect2 &p_region);
+	bool _remove_paragraph_bind_compat_91098(int p_paragraph);
+	static void _bind_compatibility_methods();
+#endif
 
 private:
 	struct Item;
@@ -102,6 +144,8 @@ private:
 	struct Line {
 		Item *from = nullptr;
 
+		Ref<TextLine> text_prefix;
+		float prefix_width = 0;
 		Ref<TextParagraph> text_buf;
 		Color dc_color;
 		int dc_ol_size = 0;
@@ -125,11 +169,18 @@ private:
 		ItemType type = ITEM_FRAME;
 		List<Item *> subitems;
 		List<Item *>::Element *E = nullptr;
+		ObjectID owner;
 		int line = 0;
+		RID rid;
 
 		void _clear_children() {
+			RichTextLabel *owner_rtl = Object::cast_to<RichTextLabel>(ObjectDB::get_instance(owner));
 			while (subitems.size()) {
-				memdelete(subitems.front()->get());
+				Item *subitem = subitems.front()->get();
+				if (subitem && subitem->rid.is_valid() && owner_rtl) {
+					owner_rtl->items.free(subitem->rid);
+				}
+				memdelete(subitem);
 				subitems.pop_front();
 			}
 		}
@@ -181,9 +232,23 @@ private:
 	struct ItemImage : public Item {
 		Ref<Texture2D> image;
 		InlineAlignment inline_align = INLINE_ALIGNMENT_CENTER;
+		bool pad = false;
+		bool size_in_percent = false;
+		Rect2 region;
 		Size2 size;
+		Size2 rq_size;
 		Color color;
+		Variant key;
+		String tooltip;
 		ItemImage() { type = ITEM_IMAGE; }
+		~ItemImage() {
+			if (image.is_valid()) {
+				RichTextLabel *owner_rtl = Object::cast_to<RichTextLabel>(ObjectDB::get_instance(owner));
+				if (owner_rtl) {
+					image->disconnect_changed(callable_mp(owner_rtl, &RichTextLabel::_texture_changed));
+				}
+			}
+		}
 	};
 
 	struct ItemFont : public Item {
@@ -225,6 +290,7 @@ private:
 
 	struct ItemMeta : public Item {
 		Variant meta;
+		MetaUnderline underline = META_UNDERLINE_ALWAYS;
 		ItemMeta() { type = ITEM_META; }
 	};
 
@@ -233,11 +299,18 @@ private:
 		ItemHint() { type = ITEM_HINT; }
 	};
 
+	struct ItemLanguage : public Item {
+		String language;
+		ItemLanguage() { type = ITEM_LANGUAGE; }
+	};
+
 	struct ItemParagraph : public Item {
 		HorizontalAlignment alignment = HORIZONTAL_ALIGNMENT_LEFT;
 		String language;
 		Control::TextDirection direction = Control::TEXT_DIRECTION_AUTO;
 		TextServer::StructuredTextParser st_parser = TextServer::STRUCTURED_TEXT_DEFAULT;
+		BitField<TextServer::JustificationFlag> jst_flags = TextServer::JUSTIFICATION_WORD_BOUND | TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_SKIP_LAST_LINE | TextServer::JUSTIFICATION_DO_NOT_SKIP_SINGLE_LINE;
+		PackedFloat32Array tab_stops;
 		ItemParagraph() { type = ITEM_PARAGRAPH; }
 	};
 
@@ -250,6 +323,8 @@ private:
 		ListType list_type = LIST_DOTS;
 		bool capitalize = false;
 		int level = 0;
+		String bullet = U"•";
+		float max_width = 0;
 		ItemList() { type = ITEM_LIST; }
 	};
 
@@ -268,7 +343,9 @@ private:
 
 		LocalVector<Column> columns;
 		LocalVector<float> rows;
+		LocalVector<float> rows_baseline;
 
+		int align_to_row = -1;
 		int total_width = 0;
 		int total_height = 0;
 		InlineAlignment inline_align = INLINE_ALIGNMENT_TOP;
@@ -336,6 +413,14 @@ private:
 		ItemRainbow() { type = ITEM_RAINBOW; }
 	};
 
+	struct ItemPulse : public ItemFX {
+		Color color = Color(1.0, 1.0, 1.0, 0.25);
+		float frequency = 1.0f;
+		float ease = -2.0f;
+
+		ItemPulse() { type = ITEM_PULSE; }
+	};
+
 	struct ItemBGColor : public Item {
 		Color color;
 		ItemBGColor() { type = ITEM_BGCOLOR; }
@@ -350,28 +435,25 @@ private:
 		Ref<CharFXTransform> char_fx_transform;
 		Ref<RichTextEffect> custom_effect;
 
-		ItemCustomFX() {
-			type = ITEM_CUSTOMFX;
-			char_fx_transform.instantiate();
-		}
+		ItemCustomFX();
 
-		virtual ~ItemCustomFX() {
-			_clear_children();
+		virtual ~ItemCustomFX();
+	};
 
-			char_fx_transform.unref();
-			custom_effect.unref();
-		}
+	struct ItemContext : public Item {
+		ItemContext() { type = ITEM_CONTEXT; }
 	};
 
 	ItemFrame *main = nullptr;
 	Item *current = nullptr;
 	ItemFrame *current_frame = nullptr;
 
-	Thread thread;
+	WorkerThreadPool::TaskID task = WorkerThreadPool::INVALID_TASK_ID;
 	Mutex data_mutex;
 	bool threaded = false;
 	std::atomic<bool> stop_thread;
 	std::atomic<bool> updating;
+	std::atomic<bool> validating;
 	std::atomic<double> loaded;
 
 	uint64_t loading_started = 0;
@@ -396,9 +478,11 @@ private:
 	int tab_size = 4;
 	bool underline_meta = true;
 	bool underline_hint = true;
-	bool override_selected_font_color = false;
+	bool use_selected_font_color = false;
 
 	HorizontalAlignment default_alignment = HORIZONTAL_ALIGNMENT_LEFT;
+	BitField<TextServer::JustificationFlag> default_jst_flags = TextServer::JUSTIFICATION_WORD_BOUND | TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_SKIP_LAST_LINE | TextServer::JUSTIFICATION_DO_NOT_SKIP_SINGLE_LINE;
+	PackedFloat32Array default_tab_stops;
 
 	ItemMeta *meta_hovering = nullptr;
 	Variant current_meta;
@@ -407,13 +491,19 @@ private:
 
 	void _invalidate_current_line(ItemFrame *p_frame);
 
-	static void _thread_function(void *self);
+	void _thread_function(void *p_userdata);
+	void _thread_end();
 	void _stop_thread();
 	bool _validate_line_caches();
 	void _process_line_caches();
+	_FORCE_INLINE_ float _update_scroll_exceeds(float p_total_height, float p_ctrl_height, float p_width, int p_idx, float p_old_scroll, float p_text_rect_height);
 
 	void _add_item(Item *p_item, bool p_enter = false, bool p_ensure_newline = false);
-	void _remove_item(Item *p_item, const int p_line, const int p_subitem_line);
+	void _remove_frame(HashSet<Item *> &r_erase_list, ItemFrame *p_frame, int p_line, bool p_erase, int p_char_offset, int p_line_offset);
+
+	void _texture_changed(RID p_item);
+
+	RID_PtrOwner<Item> items;
 
 	String language;
 	TextDirection text_direction = TEXT_DIRECTION_AUTO;
@@ -443,6 +533,7 @@ private:
 
 	Selection selection;
 	bool deselect_on_focus_loss_enabled = true;
+	bool drag_and_drop_selection_enabled = true;
 
 	bool context_menu_enabled = false;
 	bool shortcut_keys_enabled = true;
@@ -450,8 +541,8 @@ private:
 	// Context menu.
 	PopupMenu *menu = nullptr;
 	void _generate_context_menu();
+	void _update_context_menu();
 	Key _get_menu_action_accelerator(const String &p_action);
-	void _menu_option(int p_option);
 
 	int visible_characters = -1;
 	float visible_ratio = 1.0;
@@ -466,6 +557,8 @@ private:
 
 	float _shape_line(ItemFrame *p_frame, int p_line, const Ref<Font> &p_base_font, int p_base_font_size, int p_width, float p_h, int *r_char_offset);
 	float _resize_line(ItemFrame *p_frame, int p_line, const Ref<Font> &p_base_font, int p_base_font_size, int p_width, float p_h);
+
+	void _set_table_size(ItemTable *p_table, int p_available_width);
 
 	void _update_line_font(ItemFrame *p_frame, int p_line, const Ref<Font> &p_base_font, int p_base_font_size);
 	int _draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_ofs, int p_width, const Color &p_base_color, int p_outline_size, const Color &p_outline_color, const Color &p_font_shadow_color, int p_shadow_outline_size, const Point2 &p_shadow_ofs, int &r_processed_glyphs);
@@ -482,9 +575,11 @@ private:
 	int _find_outline_size(Item *p_item, int p_default);
 	ItemList *_find_list_item(Item *p_item);
 	ItemDropcap *_find_dc_item(Item *p_item);
-	int _find_list(Item *p_item, Vector<int> &r_index, Vector<ItemList *> &r_list);
+	int _find_list(Item *p_item, Vector<int> &r_index, Vector<int> &r_count, Vector<ItemList *> &r_list);
 	int _find_margin(Item *p_item, const Ref<Font> &p_base_font, int p_base_font_size);
+	PackedFloat32Array _find_tab_stops(Item *p_item);
 	HorizontalAlignment _find_alignment(Item *p_item);
+	BitField<TextServer::JustificationFlag> _find_jst_flags(Item *p_item);
 	TextServer::Direction _find_direction(Item *p_item);
 	TextServer::StructuredTextParser _find_stt(Item *p_item);
 	String _find_language(Item *p_item);
@@ -498,6 +593,7 @@ private:
 	Color _find_fgcolor(Item *p_item);
 	bool _find_layout_subitem(Item *from, Item *to);
 	void _fetch_item_fx_stack(Item *p_item, Vector<ItemFX *> &r_stack);
+	void _normalize_subtags(Vector<String> &subtags);
 
 	void _update_fx(ItemFrame *p_frame, double p_delta_time);
 	void _scroll_changed(double);
@@ -514,17 +610,19 @@ private:
 	Ref<RichTextEffect> _get_custom_effect_by_code(String p_bbcode_identifier);
 	virtual Dictionary parse_expressions_for_values(Vector<String> p_expressions);
 
-	void _draw_fbg_boxes(RID p_ci, RID p_rid, Vector2 line_off, Item *it_from, Item *it_to, int start, int end, int fbg_flag);
+	Size2 _get_image_size(const Ref<Texture2D> &p_image, int p_width = 0, int p_height = 0, const Rect2 &p_region = Rect2());
+
+	String _get_prefix(Item *p_item, const Vector<int> &p_list_index, const Vector<ItemList *> &p_list_items);
+
 #ifndef DISABLE_DEPRECATED
 	// Kept for compatibility from 3.x to 4.0.
 	bool _set(const StringName &p_name, const Variant &p_value);
 #endif
 	bool use_bbcode = false;
 	String text;
+	void _apply_translation();
 
-	int fixed_width = -1;
-
-	bool fit_content_height = false;
+	bool fit_content = false;
 
 	struct ThemeCache {
 		Ref<StyleBox> normal_style;
@@ -557,6 +655,9 @@ private:
 		Ref<Font> mono_font;
 		int mono_font_size;
 
+		int text_highlight_h_padding;
+		int text_highlight_v_padding;
+
 		int table_h_separation;
 		int table_v_separation;
 		Color table_odd_row_bg;
@@ -569,9 +670,11 @@ private:
 public:
 	String get_parsed_text() const;
 	void add_text(const String &p_text);
-	void add_image(const Ref<Texture2D> &p_image, const int p_width = 0, const int p_height = 0, const Color &p_color = Color(1.0, 1.0, 1.0), InlineAlignment p_alignment = INLINE_ALIGNMENT_CENTER, const Rect2 &p_region = Rect2(0, 0, 0, 0));
+	void add_image(const Ref<Texture2D> &p_image, int p_width = 0, int p_height = 0, const Color &p_color = Color(1.0, 1.0, 1.0), InlineAlignment p_alignment = INLINE_ALIGNMENT_CENTER, const Rect2 &p_region = Rect2(), const Variant &p_key = Variant(), bool p_pad = false, const String &p_tooltip = String(), bool p_size_in_percent = false);
+	void update_image(const Variant &p_key, BitField<ImageUpdateMask> p_mask, const Ref<Texture2D> &p_image, int p_width = 0, int p_height = 0, const Color &p_color = Color(1.0, 1.0, 1.0), InlineAlignment p_alignment = INLINE_ALIGNMENT_CENTER, const Rect2 &p_region = Rect2(), bool p_pad = false, const String &p_tooltip = String(), bool p_size_in_percent = false);
 	void add_newline();
-	bool remove_line(const int p_line);
+	bool remove_paragraph(int p_paragraph, bool p_no_invalidate = false);
+	bool invalidate_paragraph(int p_paragraph);
 	void push_dropcap(const String &p_string, const Ref<Font> &p_font, int p_size, const Rect2 &p_dropcap_margins = Rect2(), const Color &p_color = Color(1, 1, 1), int p_ol_size = 0, const Color &p_ol_color = Color(0, 0, 0, 0));
 	void _push_def_font(DefaultFont p_def_font);
 	void _push_def_font_var(DefaultFont p_def_font, const Ref<Font> &p_font, int p_size = -1);
@@ -587,20 +690,23 @@ public:
 	void push_outline_color(const Color &p_color);
 	void push_underline();
 	void push_strikethrough();
-	void push_paragraph(HorizontalAlignment p_alignment, Control::TextDirection p_direction = Control::TEXT_DIRECTION_INHERITED, const String &p_language = "", TextServer::StructuredTextParser p_st_parser = TextServer::STRUCTURED_TEXT_DEFAULT);
+	void push_language(const String &p_language);
+	void push_paragraph(HorizontalAlignment p_alignment, Control::TextDirection p_direction = Control::TEXT_DIRECTION_INHERITED, const String &p_language = "", TextServer::StructuredTextParser p_st_parser = TextServer::STRUCTURED_TEXT_DEFAULT, BitField<TextServer::JustificationFlag> p_jst_flags = TextServer::JUSTIFICATION_WORD_BOUND | TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_SKIP_LAST_LINE | TextServer::JUSTIFICATION_DO_NOT_SKIP_SINGLE_LINE, const PackedFloat32Array &p_tab_stops = PackedFloat32Array());
 	void push_indent(int p_level);
-	void push_list(int p_level, ListType p_list, bool p_capitalize);
-	void push_meta(const Variant &p_meta);
+	void push_list(int p_level, ListType p_list, bool p_capitalize, const String &p_bullet = String::utf8("•"));
+	void push_meta(const Variant &p_meta, MetaUnderline p_underline_mode = META_UNDERLINE_ALWAYS);
 	void push_hint(const String &p_string);
-	void push_table(int p_columns, InlineAlignment p_alignment = INLINE_ALIGNMENT_TOP);
+	void push_table(int p_columns, InlineAlignment p_alignment = INLINE_ALIGNMENT_TOP, int p_align_to_row = -1);
 	void push_fade(int p_start_index, int p_length);
 	void push_shake(int p_strength, float p_rate, bool p_connected);
 	void push_wave(float p_frequency, float p_amplitude, bool p_connected);
 	void push_tornado(float p_frequency, float p_radius, bool p_connected);
 	void push_rainbow(float p_saturation, float p_value, float p_frequency);
+	void push_pulse(const Color &p_color, float p_frequency, float p_ease);
 	void push_bgcolor(const Color &p_color);
 	void push_fgcolor(const Color &p_color);
 	void push_customfx(Ref<RichTextEffect> p_custom_effect, Dictionary p_environment);
+	void push_context();
 	void set_table_column_expand(int p_column, bool p_expand, int p_ratio = 1);
 	void set_cell_row_background_color(const Color &p_odd_row_bg, const Color &p_even_row_bg);
 	void set_cell_border_color(const Color &p_color);
@@ -609,6 +715,8 @@ public:
 	int get_current_table_column() const;
 	void push_cell();
 	void pop();
+	void pop_context();
+	void pop_all();
 
 	void clear();
 
@@ -619,9 +727,6 @@ public:
 
 	void set_hint_underline(bool p_underline);
 	bool is_hint_underlined() const;
-
-	void set_override_selected_font_color(bool p_override_selected_font_color);
-	bool is_overriding_selected_font_color() const;
 
 	void set_scroll_active(bool p_active);
 	bool is_scroll_active() const;
@@ -638,8 +743,8 @@ public:
 	void set_shortcut_keys_enabled(bool p_enabled);
 	bool is_shortcut_keys_enabled() const;
 
-	void set_fit_content_height(bool p_enabled);
-	bool is_fit_content_height_enabled() const;
+	void set_fit_content(bool p_enabled);
+	bool is_fit_content_enabled() const;
 
 	bool search(const String &p_string, bool p_from_selection = false, bool p_search_previous = false);
 
@@ -657,6 +762,8 @@ public:
 	int get_content_height() const;
 	int get_content_width() const;
 
+	void scroll_to_selection();
+
 	VScrollBar *get_v_scroll_bar() { return vscroll; }
 
 	virtual CursorShape get_cursor_shape(const Point2 &p_pos) const override;
@@ -669,11 +776,18 @@ public:
 	String get_selected_text() const;
 	void select_all();
 	void selection_copy();
+
 	void set_deselect_on_focus_loss_enabled(const bool p_enabled);
 	bool is_deselect_on_focus_loss_enabled() const;
+
+	void set_drag_and_drop_selection_enabled(const bool p_enabled);
+	bool is_drag_and_drop_selection_enabled() const;
+
 	void deselect();
 
-	bool is_ready() const;
+	int get_pending_paragraphs() const;
+	bool is_finished() const;
+	bool is_updating() const;
 
 	void set_threaded(bool p_threaded);
 	bool is_threaded() const;
@@ -684,6 +798,7 @@ public:
 	// Context menu.
 	PopupMenu *get_menu() const;
 	bool is_menu_visible() const;
+	void menu_option(int p_option);
 
 	void parse_bbcode(const String &p_bbcode);
 	void append_text(const String &p_bbcode);
@@ -693,6 +808,15 @@ public:
 
 	void set_text(const String &p_bbcode);
 	String get_text() const;
+
+	void set_horizontal_alignment(HorizontalAlignment p_alignment);
+	HorizontalAlignment get_horizontal_alignment() const;
+
+	void set_justification_flags(BitField<TextServer::JustificationFlag> p_flags);
+	BitField<TextServer::JustificationFlag> get_justification_flags() const;
+
+	void set_tab_stops(const PackedFloat32Array &p_tab_stops);
+	PackedFloat32Array get_tab_stops() const;
 
 	void set_text_direction(TextDirection p_text_direction);
 	TextDirection get_text_direction() const;
@@ -727,7 +851,6 @@ public:
 
 	void install_effect(const Variant effect);
 
-	void set_fixed_size_to_width(int p_width);
 	virtual Size2 get_minimum_size() const override;
 
 	RichTextLabel(const String &p_text = String());
@@ -735,6 +858,8 @@ public:
 };
 
 VARIANT_ENUM_CAST(RichTextLabel::ListType);
-VARIANT_ENUM_CAST(RichTextLabel::ItemType);
+VARIANT_ENUM_CAST(RichTextLabel::MenuItems);
+VARIANT_ENUM_CAST(RichTextLabel::MetaUnderline);
+VARIANT_BITFIELD_CAST(RichTextLabel::ImageUpdateMask);
 
 #endif // RICH_TEXT_LABEL_H

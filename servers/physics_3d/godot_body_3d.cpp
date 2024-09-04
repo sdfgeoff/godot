@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  godot_body_3d.cpp                                                    */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  godot_body_3d.cpp                                                     */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "godot_body_3d.h"
 
@@ -35,7 +35,7 @@
 #include "godot_space_3d.h"
 
 void GodotBody3D::_mass_properties_changed() {
-	if (get_space() && !mass_properties_update_list.in_list() && (calculate_inertia || calculate_center_of_mass)) {
+	if (get_space() && !mass_properties_update_list.in_list()) {
 		get_space()->body_add_to_mass_properties_update_list(&mass_properties_update_list);
 	}
 }
@@ -454,7 +454,8 @@ void GodotBody3D::set_space(GodotSpace3D *p_space) {
 
 	if (get_space()) {
 		_mass_properties_changed();
-		if (active) {
+
+		if (active && !active_list.in_list()) {
 			get_space()->body_add_to_active_list(&active_list);
 		}
 	}
@@ -477,7 +478,7 @@ void GodotBody3D::integrate_forces(real_t p_step) {
 		return;
 	}
 
-	ERR_FAIL_COND(!get_space());
+	ERR_FAIL_NULL(get_space());
 
 	int ac = areas.size();
 
@@ -565,7 +566,7 @@ void GodotBody3D::integrate_forces(real_t p_step) {
 	// Add default gravity and damping from space area.
 	if (!stopped) {
 		GodotArea3D *default_area = get_space()->get_default_area();
-		ERR_FAIL_COND(!default_area);
+		ERR_FAIL_NULL(default_area);
 
 		if (!gravity_done) {
 			Vector3 default_gravity;
@@ -674,7 +675,9 @@ void GodotBody3D::integrate_velocities(real_t p_step) {
 		return;
 	}
 
-	if (fi_callback_data || body_state_callback.get_object()) {
+	ERR_FAIL_NULL(get_space());
+
+	if (fi_callback_data || body_state_callback.is_valid()) {
 		get_space()->body_add_to_state_query_list(&direct_state_query_list);
 	}
 
@@ -759,7 +762,7 @@ void GodotBody3D::call_queries() {
 	Variant direct_state_variant = get_direct_state();
 
 	if (fi_callback_data) {
-		if (!fi_callback_data->callable.get_object()) {
+		if (!fi_callback_data->callable.is_valid()) {
 			set_force_integration_callback(Callable());
 		} else {
 			const Variant *vp[2] = { &direct_state_variant, &fi_callback_data->udata };
@@ -771,11 +774,8 @@ void GodotBody3D::call_queries() {
 		}
 	}
 
-	if (body_state_callback.get_object()) {
-		const Variant *vp[1] = { &direct_state_variant };
-		Callable::CallError ce;
-		Variant rv;
-		body_state_callback.callp(vp, 1, rv, ce);
+	if (body_state_callback.is_valid()) {
+		body_state_callback.call(direct_state_variant);
 	}
 }
 
@@ -785,6 +785,8 @@ bool GodotBody3D::sleep_test(real_t p_step) {
 	} else if (!can_sleep) {
 		return false;
 	}
+
+	ERR_FAIL_NULL_V(get_space(), true);
 
 	if (Math::abs(angular_velocity.length()) < get_space()->get_body_angular_velocity_sleep_threshold() && Math::abs(linear_velocity.length_squared()) < get_space()->get_body_linear_velocity_sleep_threshold() * get_space()->get_body_linear_velocity_sleep_threshold()) {
 		still_time += p_step;
@@ -801,7 +803,7 @@ void GodotBody3D::set_state_sync_callback(const Callable &p_callable) {
 }
 
 void GodotBody3D::set_force_integration_callback(const Callable &p_callable, const Variant &p_udata) {
-	if (p_callable.get_object()) {
+	if (p_callable.is_valid()) {
 		if (!fi_callback_data) {
 			fi_callback_data = memnew(ForceIntegrationCallbackData);
 		}

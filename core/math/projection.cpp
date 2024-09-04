@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  projection.cpp                                                       */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  projection.cpp                                                        */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "projection.h"
 
@@ -37,7 +37,7 @@
 #include "core/math/transform_3d.h"
 #include "core/string/ustring.h"
 
-float Projection::determinant() const {
+real_t Projection::determinant() const {
 	return columns[0][3] * columns[1][2] * columns[2][1] * columns[3][0] - columns[0][2] * columns[1][3] * columns[2][1] * columns[3][0] -
 			columns[0][3] * columns[1][1] * columns[2][2] * columns[3][0] + columns[0][1] * columns[1][3] * columns[2][2] * columns[3][0] +
 			columns[0][2] * columns[1][1] * columns[2][3] * columns[3][0] - columns[0][1] * columns[1][2] * columns[2][3] * columns[3][0] -
@@ -134,7 +134,7 @@ Projection Projection::create_for_hmd(int p_eye, real_t p_aspect, real_t p_intra
 
 Projection Projection::create_orthogonal(real_t p_left, real_t p_right, real_t p_bottom, real_t p_top, real_t p_znear, real_t p_zfar) {
 	Projection proj;
-	proj.set_orthogonal(p_left, p_right, p_bottom, p_top, p_zfar, p_zfar);
+	proj.set_orthogonal(p_left, p_right, p_bottom, p_top, p_znear, p_zfar);
 	return proj;
 }
 
@@ -181,7 +181,7 @@ Plane Projection::get_projection_plane(Planes p_plane) const {
 			new_plane.normal = -new_plane.normal;
 			new_plane.normalize();
 			return new_plane;
-		} break;
+		}
 		case PLANE_FAR: {
 			Plane new_plane = Plane(matrix[3] - matrix[2],
 					matrix[7] - matrix[6],
@@ -191,7 +191,7 @@ Plane Projection::get_projection_plane(Planes p_plane) const {
 			new_plane.normal = -new_plane.normal;
 			new_plane.normalize();
 			return new_plane;
-		} break;
+		}
 		case PLANE_LEFT: {
 			Plane new_plane = Plane(matrix[3] + matrix[0],
 					matrix[7] + matrix[4],
@@ -201,7 +201,7 @@ Plane Projection::get_projection_plane(Planes p_plane) const {
 			new_plane.normal = -new_plane.normal;
 			new_plane.normalize();
 			return new_plane;
-		} break;
+		}
 		case PLANE_TOP: {
 			Plane new_plane = Plane(matrix[3] - matrix[1],
 					matrix[7] - matrix[5],
@@ -211,7 +211,7 @@ Plane Projection::get_projection_plane(Planes p_plane) const {
 			new_plane.normal = -new_plane.normal;
 			new_plane.normalize();
 			return new_plane;
-		} break;
+		}
 		case PLANE_RIGHT: {
 			Plane new_plane = Plane(matrix[3] - matrix[0],
 					matrix[7] - matrix[4],
@@ -221,7 +221,7 @@ Plane Projection::get_projection_plane(Planes p_plane) const {
 			new_plane.normal = -new_plane.normal;
 			new_plane.normalize();
 			return new_plane;
-		} break;
+		}
 		case PLANE_BOTTOM: {
 			Plane new_plane = Plane(matrix[3] + matrix[1],
 					matrix[7] + matrix[5],
@@ -231,7 +231,7 @@ Plane Projection::get_projection_plane(Planes p_plane) const {
 			new_plane.normal = -new_plane.normal;
 			new_plane.normalize();
 			return new_plane;
-		} break;
+		}
 	}
 
 	return Plane();
@@ -408,7 +408,6 @@ real_t Projection::get_z_far() const {
 			matrix[11] - matrix[10],
 			matrix[15] - matrix[14]);
 
-	new_plane.normal = -new_plane.normal;
 	new_plane.normalize();
 
 	return new_plane.d;
@@ -720,7 +719,8 @@ Projection Projection::operator*(const Projection &p_matrix) const {
 	return new_matrix;
 }
 
-void Projection::set_depth_correction(bool p_flip_y) {
+void Projection::set_depth_correction(bool p_flip_y, bool p_reverse_z, bool p_remap_z) {
+	// p_remap_z is used to convert from OpenGL-style clip space (-1 - 1) to Vulkan style (0 - 1).
 	real_t *m = &columns[0][0];
 
 	m[0] = 1;
@@ -733,11 +733,11 @@ void Projection::set_depth_correction(bool p_flip_y) {
 	m[7] = 0.0;
 	m[8] = 0.0;
 	m[9] = 0.0;
-	m[10] = 0.5;
+	m[10] = p_remap_z ? (p_reverse_z ? -0.5 : 0.5) : (p_reverse_z ? -1.0 : 1.0);
 	m[11] = 0.0;
 	m[12] = 0.0;
 	m[13] = 0.0;
-	m[14] = 0.5;
+	m[14] = p_remap_z ? 0.5 : 0.0;
 	m[15] = 1.0;
 }
 
@@ -832,13 +832,13 @@ real_t Projection::get_fov() const {
 	}
 }
 
-float Projection::get_lod_multiplier() const {
+real_t Projection::get_lod_multiplier() const {
 	if (is_orthogonal()) {
 		return get_viewport_half_extents().x;
 	} else {
-		float zn = get_z_near();
-		float width = get_viewport_half_extents().x * 2.0;
-		return 1.0 / (zn / width);
+		const real_t zn = get_z_near();
+		const real_t width = get_viewport_half_extents().x * 2.0f;
+		return 1.0f / (zn / width);
 	}
 
 	// Usage is lod_size / (lod_distance * multiplier) < threshold

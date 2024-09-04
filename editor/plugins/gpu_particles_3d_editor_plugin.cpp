@@ -1,41 +1,45 @@
-/*************************************************************************/
-/*  gpu_particles_3d_editor_plugin.cpp                                   */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  gpu_particles_3d_editor_plugin.cpp                                    */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "gpu_particles_3d_editor_plugin.h"
 
 #include "core/io/resource_loader.h"
 #include "editor/editor_node.h"
+#include "editor/editor_settings.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/plugins/node_3d_editor_plugin.h"
 #include "editor/scene_tree_dock.h"
 #include "scene/3d/cpu_particles_3d.h"
+#include "scene/3d/mesh_instance_3d.h"
+#include "scene/gui/menu_button.h"
+#include "scene/resources/image_texture.h"
 #include "scene/resources/particle_process_material.h"
 
 bool GPUParticles3DEditorBase::_generate(Vector<Vector3> &points, Vector<Vector3> &normals) {
@@ -194,9 +198,6 @@ void GPUParticles3DEditorBase::_node_selected(const NodePath &p_path) {
 	emission_dialog->popup_centered(Size2(300, 130));
 }
 
-void GPUParticles3DEditorBase::_bind_methods() {
-}
-
 GPUParticles3DEditorBase::GPUParticles3DEditorBase() {
 	emission_dialog = memnew(ConfirmationDialog);
 	emission_dialog->set_title(TTR("Create Emitter"));
@@ -217,9 +218,12 @@ GPUParticles3DEditorBase::GPUParticles3DEditorBase() {
 	emd_vb->add_margin_child(TTR("Emission Source:"), emission_fill);
 
 	emission_dialog->set_ok_button_text(TTR("Create"));
-	emission_dialog->connect("confirmed", callable_mp(this, &GPUParticles3DEditorBase::_generate_emission_points));
+	emission_dialog->connect(SceneStringName(confirmed), callable_mp(this, &GPUParticles3DEditorBase::_generate_emission_points));
 
 	emission_tree_dialog = memnew(SceneTreeDialog);
+	Vector<StringName> valid_types;
+	valid_types.push_back("MeshInstance3D");
+	emission_tree_dialog->set_valid_types(valid_types);
 	add_child(emission_tree_dialog);
 	emission_tree_dialog->connect("selected", callable_mp(this, &GPUParticles3DEditorBase::_node_selected));
 }
@@ -234,7 +238,7 @@ void GPUParticles3DEditor::_node_removed(Node *p_node) {
 void GPUParticles3DEditor::_notification(int p_notification) {
 	switch (p_notification) {
 		case NOTIFICATION_ENTER_TREE: {
-			options->set_icon(options->get_popup()->get_theme_icon(SNAME("GPUParticles3D"), SNAME("EditorIcons")));
+			options->set_icon(options->get_popup()->get_editor_theme_icon(SNAME("GPUParticles3D")));
 			get_tree()->connect("node_removed", callable_mp(this, &GPUParticles3DEditor::_node_removed));
 		} break;
 	}
@@ -272,13 +276,10 @@ void GPUParticles3DEditor::_menu_option(int p_option) {
 			cpu_particles->set_visible(node->is_visible());
 			cpu_particles->set_process_mode(node->get_process_mode());
 
-			Ref<EditorUndoRedoManager> &ur = EditorNode::get_singleton()->get_undo_redo();
-			ur->create_action(TTR("Convert to CPUParticles3D"));
-			ur->add_do_method(SceneTreeDock::get_singleton(), "replace_node", node, cpu_particles, true, false);
-			ur->add_do_reference(cpu_particles);
-			ur->add_undo_method(SceneTreeDock::get_singleton(), "replace_node", cpu_particles, node, false, false);
-			ur->add_undo_reference(node);
-			ur->commit_action();
+			EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+			ur->create_action(TTR("Convert to CPUParticles3D"), UndoRedo::MERGE_DISABLE, node);
+			SceneTreeDock::get_singleton()->replace_node(node, cpu_particles);
+			ur->commit_action(false);
 
 		} break;
 		case MENU_OPTION_RESTART: {
@@ -305,7 +306,7 @@ void GPUParticles3DEditor::_generate_aabb() {
 
 	while (running < time) {
 		uint64_t ticks = OS::get_singleton()->get_ticks_usec();
-		ep.step("Generating...", int(running), true);
+		ep.step(TTR("Generating..."), int(running), true);
 		OS::get_singleton()->delay_usec(1000);
 
 		AABB capture = node->capture_aabb();
@@ -322,7 +323,7 @@ void GPUParticles3DEditor::_generate_aabb() {
 		node->set_emitting(false);
 	}
 
-	Ref<EditorUndoRedoManager> &ur = EditorNode::get_singleton()->get_undo_redo();
+	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
 	ur->create_action(TTR("Generate Visibility AABB"));
 	ur->add_do_method(node, "set_visibility_aabb", rect);
 	ur->add_undo_method(node, "set_visibility_aabb", node->get_visibility_aabb());
@@ -398,9 +399,6 @@ void GPUParticles3DEditor::_generate_emission_points() {
 	}
 }
 
-void GPUParticles3DEditor::_bind_methods() {
-}
-
 GPUParticles3DEditor::GPUParticles3DEditor() {
 	node = nullptr;
 	particles_editor_hb = memnew(HBoxContainer);
@@ -411,12 +409,12 @@ GPUParticles3DEditor::GPUParticles3DEditor() {
 	particles_editor_hb->hide();
 
 	options->set_text(TTR("GPUParticles3D"));
-	options->get_popup()->add_item(TTR("Restart"), MENU_OPTION_RESTART);
+	options->get_popup()->add_shortcut(ED_GET_SHORTCUT("particles/restart_emission"), MENU_OPTION_RESTART);
 	options->get_popup()->add_item(TTR("Generate AABB"), MENU_OPTION_GENERATE_AABB);
 	options->get_popup()->add_item(TTR("Create Emission Points From Node"), MENU_OPTION_CREATE_EMISSION_VOLUME_FROM_NODE);
 	options->get_popup()->add_item(TTR("Convert to CPUParticles3D"), MENU_OPTION_CONVERT_TO_CPU_PARTICLES);
 
-	options->get_popup()->connect("id_pressed", callable_mp(this, &GPUParticles3DEditor::_menu_option));
+	options->get_popup()->connect(SceneStringName(id_pressed), callable_mp(this, &GPUParticles3DEditor::_menu_option));
 
 	generate_aabb = memnew(ConfirmationDialog);
 	generate_aabb->set_title(TTR("Generate Visibility AABB"));
@@ -430,7 +428,7 @@ GPUParticles3DEditor::GPUParticles3DEditor() {
 
 	add_child(generate_aabb);
 
-	generate_aabb->connect("confirmed", callable_mp(this, &GPUParticles3DEditor::_generate_aabb));
+	generate_aabb->connect(SceneStringName(confirmed), callable_mp(this, &GPUParticles3DEditor::_generate_aabb));
 }
 
 void GPUParticles3DEditorPlugin::edit(Object *p_object) {

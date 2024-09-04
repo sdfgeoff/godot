@@ -1,44 +1,46 @@
-/*************************************************************************/
-/*  popup.cpp                                                            */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  popup.cpp                                                             */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "popup.h"
 
 #include "core/config/engine.h"
 #include "core/os/keyboard.h"
 #include "scene/gui/panel.h"
+#include "scene/theme/theme_db.h"
 
 void Popup::_input_from_window(const Ref<InputEvent> &p_event) {
-	Ref<InputEventKey> key = p_event;
-	if (key.is_valid() && key->is_pressed() && key->get_keycode() == Key::ESCAPE) {
+	if (get_flag(FLAG_POPUP) && p_event->is_action_pressed(SNAME("ui_cancel"), false, true)) {
+		hide_reason = HIDE_REASON_CANCELED; // ESC pressed, mark as canceled unconditionally.
 		_close_pressed();
 	}
+	Window::_input_from_window(p_event);
 }
 
 void Popup::_initialize_visible_parents() {
@@ -50,8 +52,8 @@ void Popup::_initialize_visible_parents() {
 			parent_window = parent_window->get_parent_visible_window();
 			if (parent_window) {
 				visible_parents.push_back(parent_window);
-				parent_window->connect("focus_entered", callable_mp(this, &Popup::_parent_focused));
-				parent_window->connect("tree_exited", callable_mp(this, &Popup::_deinitialize_visible_parents));
+				parent_window->connect(SceneStringName(focus_entered), callable_mp(this, &Popup::_parent_focused));
+				parent_window->connect(SceneStringName(tree_exited), callable_mp(this, &Popup::_deinitialize_visible_parents));
 			}
 		}
 	}
@@ -59,19 +61,13 @@ void Popup::_initialize_visible_parents() {
 
 void Popup::_deinitialize_visible_parents() {
 	if (is_embedded()) {
-		for (uint32_t i = 0; i < visible_parents.size(); ++i) {
-			visible_parents[i]->disconnect("focus_entered", callable_mp(this, &Popup::_parent_focused));
-			visible_parents[i]->disconnect("tree_exited", callable_mp(this, &Popup::_deinitialize_visible_parents));
+		for (Window *parent_window : visible_parents) {
+			parent_window->disconnect(SceneStringName(focus_entered), callable_mp(this, &Popup::_parent_focused));
+			parent_window->disconnect(SceneStringName(tree_exited), callable_mp(this, &Popup::_deinitialize_visible_parents));
 		}
 
 		visible_parents.clear();
 	}
-}
-
-void Popup::_update_theme_item_cache() {
-	Window::_update_theme_item_cache();
-
-	theme_cache.panel_style = get_theme_stylebox(SNAME("panel"));
 }
 
 void Popup::_notification(int p_what) {
@@ -82,6 +78,9 @@ void Popup::_notification(int p_what) {
 					_initialize_visible_parents();
 				} else {
 					_deinitialize_visible_parents();
+					if (hide_reason == HIDE_REASON_NONE) {
+						hide_reason = HIDE_REASON_CANCELED;
+					}
 					emit_signal(SNAME("popup_hide"));
 					popped_up = false;
 				}
@@ -92,19 +91,32 @@ void Popup::_notification(int p_what) {
 			if (!is_in_edited_scene_root()) {
 				if (has_focus()) {
 					popped_up = true;
+					hide_reason = HIDE_REASON_NONE;
 				}
 			}
 		} break;
 
+		case NOTIFICATION_UNPARENTED:
 		case NOTIFICATION_EXIT_TREE: {
 			if (!is_in_edited_scene_root()) {
 				_deinitialize_visible_parents();
 			}
 		} break;
 
-		case NOTIFICATION_WM_CLOSE_REQUEST:
-		case NOTIFICATION_APPLICATION_FOCUS_OUT: {
+		case NOTIFICATION_WM_CLOSE_REQUEST: {
 			if (!is_in_edited_scene_root()) {
+				if (hide_reason == HIDE_REASON_NONE) {
+					hide_reason = HIDE_REASON_UNFOCUSED;
+				}
+				_close_pressed();
+			}
+		} break;
+
+		case NOTIFICATION_APPLICATION_FOCUS_OUT: {
+			if (!is_in_edited_scene_root() && get_flag(FLAG_POPUP)) {
+				if (hide_reason == HIDE_REASON_NONE) {
+					hide_reason = HIDE_REASON_UNFOCUSED;
+				}
 				_close_pressed();
 			}
 		} break;
@@ -113,6 +125,9 @@ void Popup::_notification(int p_what) {
 
 void Popup::_parent_focused() {
 	if (popped_up && get_flag(FLAG_POPUP)) {
+		if (hide_reason == HIDE_REASON_NONE) {
+			hide_reason = HIDE_REASON_UNFOCUSED;
+		}
 		_close_pressed();
 	}
 }
@@ -122,16 +137,12 @@ void Popup::_close_pressed() {
 
 	_deinitialize_visible_parents();
 
-	call_deferred(SNAME("hide"));
+	callable_mp((Window *)this, &Window::hide).call_deferred();
 }
 
 void Popup::_post_popup() {
 	Window::_post_popup();
 	popped_up = true;
-}
-
-void Popup::_bind_methods() {
-	ADD_SIGNAL(MethodInfo("popup_hide"));
 }
 
 void Popup::_validate_property(PropertyInfo &p_property) const {
@@ -195,6 +206,10 @@ Rect2i Popup::_popup_adjust_rect() const {
 	return current;
 }
 
+void Popup::_bind_methods() {
+	ADD_SIGNAL(MethodInfo("popup_hide"));
+}
+
 Popup::Popup() {
 	set_wrap_controls(true);
 	set_visible(false);
@@ -202,8 +217,6 @@ Popup::Popup() {
 	set_flag(FLAG_BORDERLESS, true);
 	set_flag(FLAG_RESIZE_DISABLED, true);
 	set_flag(FLAG_POPUP, true);
-
-	connect("window_input", callable_mp(this, &Popup::_input_from_window));
 }
 
 Popup::~Popup() {
@@ -223,8 +236,7 @@ Size2 PopupPanel::_get_contents_minimum_size() const {
 		}
 
 		Size2 cms = c->get_combined_minimum_size();
-		ms.x = MAX(cms.x, ms.x);
-		ms.y = MAX(cms.y, ms.y);
+		ms = cms.max(ms);
 	}
 
 	return ms + theme_cache.panel_style->get_minimum_size();
@@ -232,7 +244,8 @@ Size2 PopupPanel::_get_contents_minimum_size() const {
 
 void PopupPanel::_update_child_rects() {
 	Vector2 cpos(theme_cache.panel_style->get_offset());
-	Vector2 csize(get_size() - theme_cache.panel_style->get_minimum_size());
+	Vector2 panel_size = Vector2(get_size()) / get_content_scale_factor();
+	Vector2 csize = panel_size - theme_cache.panel_style->get_minimum_size();
 
 	for (int i = 0; i < get_child_count(); i++) {
 		Control *c = Object::cast_to<Control>(get_child(i));
@@ -246,7 +259,7 @@ void PopupPanel::_update_child_rects() {
 
 		if (c == panel) {
 			c->set_position(Vector2());
-			c->set_size(get_size());
+			c->set_size(panel_size);
 		} else {
 			c->set_position(cpos);
 			c->set_size(csize);
@@ -254,17 +267,11 @@ void PopupPanel::_update_child_rects() {
 	}
 }
 
-void PopupPanel::_update_theme_item_cache() {
-	Popup::_update_theme_item_cache();
-
-	theme_cache.panel_style = get_theme_stylebox(SNAME("panel"));
-}
-
 void PopupPanel::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_READY:
 		case NOTIFICATION_THEME_CHANGED: {
-			panel->add_theme_style_override("panel", theme_cache.panel_style);
+			panel->add_theme_style_override(SceneStringName(panel), theme_cache.panel_style);
 			_update_child_rects();
 		} break;
 
@@ -272,6 +279,10 @@ void PopupPanel::_notification(int p_what) {
 			_update_child_rects();
 		} break;
 	}
+}
+
+void PopupPanel::_bind_methods() {
+	BIND_THEME_ITEM_CUSTOM(Theme::DATA_TYPE_STYLEBOX, PopupPanel, panel_style, "panel");
 }
 
 PopupPanel::PopupPanel() {

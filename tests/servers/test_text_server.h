@@ -1,39 +1,39 @@
-/*************************************************************************/
-/*  test_text_server.h                                                   */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  test_text_server.h                                                    */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef TEST_TEXT_SERVER_H
 #define TEST_TEXT_SERVER_H
 
 #ifdef TOOLS_ENABLED
 
-#include "editor/builtin_fonts.gen.h"
+#include "editor/themes/builtin_fonts.gen.h"
 #include "servers/text_server.h"
 #include "tests/test_macros.h"
 
@@ -68,8 +68,10 @@ TEST_SUITE("[TextServer]") {
 
 				RID font1 = ts->create_font();
 				ts->font_set_data_ptr(font1, _font_NotoSans_Regular, _font_NotoSans_Regular_size);
+				ts->font_set_allow_system_fallback(font1, false);
 				RID font2 = ts->create_font();
-				ts->font_set_data_ptr(font2, _font_NotoSansThaiUI_Regular, _font_NotoSansThaiUI_Regular_size);
+				ts->font_set_data_ptr(font2, _font_NotoSansThai_Regular, _font_NotoSansThai_Regular_size);
+				ts->font_set_allow_system_fallback(font2, false);
 
 				Array font;
 				font.push_back(font1);
@@ -173,15 +175,95 @@ TEST_SUITE("[TextServer]") {
 
 				RID font1 = ts->create_font();
 				ts->font_set_data_ptr(font1, _font_NotoSans_Regular, _font_NotoSans_Regular_size);
+				ts->font_set_allow_system_fallback(font1, false);
 				RID font2 = ts->create_font();
-				ts->font_set_data_ptr(font2, _font_NotoSansThaiUI_Regular, _font_NotoSansThaiUI_Regular_size);
+				ts->font_set_data_ptr(font2, _font_NotoSansThai_Regular, _font_NotoSansThai_Regular_size);
+				ts->font_set_allow_system_fallback(font2, false);
 				RID font3 = ts->create_font();
 				ts->font_set_data_ptr(font3, _font_NotoNaskhArabicUI_Regular, _font_NotoNaskhArabicUI_Regular_size);
+				ts->font_set_allow_system_fallback(font3, false);
 
 				Array font;
 				font.push_back(font1);
 				font.push_back(font2);
 				font.push_back(font3);
+
+				{
+					RID ctx = ts->create_shaped_text();
+					CHECK_FALSE_MESSAGE(ctx == RID(), "Creating text buffer failed.");
+					ts->shaped_text_add_string(ctx, U"Xtest", font, 10);
+					ts->shaped_text_add_string(ctx, U"xs", font, 10);
+					RID sctx = ts->shaped_text_substr(ctx, 1, 5);
+					CHECK_FALSE_MESSAGE(sctx == RID(), "Creating substring text buffer failed.");
+					PackedInt32Array sbrk = ts->shaped_text_get_character_breaks(sctx);
+					CHECK_FALSE_MESSAGE(sbrk.size() != 5, "Invalid substring char breaks number.");
+					if (sbrk.size() == 5) {
+						CHECK_FALSE_MESSAGE(sbrk[0] != 2, "Invalid substring char break position.");
+						CHECK_FALSE_MESSAGE(sbrk[1] != 3, "Invalid substring char break position.");
+						CHECK_FALSE_MESSAGE(sbrk[2] != 4, "Invalid substring char break position.");
+						CHECK_FALSE_MESSAGE(sbrk[3] != 5, "Invalid substring char break position.");
+						CHECK_FALSE_MESSAGE(sbrk[4] != 6, "Invalid substring char break position.");
+					}
+					PackedInt32Array fbrk = ts->shaped_text_get_character_breaks(ctx);
+					CHECK_FALSE_MESSAGE(fbrk.size() != 7, "Invalid char breaks number.");
+					if (fbrk.size() == 7) {
+						CHECK_FALSE_MESSAGE(fbrk[0] != 1, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[1] != 2, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[2] != 3, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[3] != 4, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[4] != 5, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[5] != 6, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[6] != 7, "Invalid char break position.");
+					}
+					PackedInt32Array rbrk = ts->string_get_character_breaks(U"Xtestxs");
+					CHECK_FALSE_MESSAGE(rbrk.size() != 7, "Invalid char breaks number.");
+					if (rbrk.size() == 7) {
+						CHECK_FALSE_MESSAGE(rbrk[0] != 1, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[1] != 2, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[2] != 3, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[3] != 4, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[4] != 5, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[5] != 6, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[6] != 7, "Invalid char break position.");
+					}
+
+					ts->free_rid(sctx);
+					ts->free_rid(ctx);
+				}
+
+				if (ts->has_feature(TextServer::FEATURE_BREAK_ITERATORS)) {
+					RID ctx = ts->create_shaped_text();
+					CHECK_FALSE_MESSAGE(ctx == RID(), "Creating text buffer failed.");
+					ts->shaped_text_add_string(ctx, U"X❤️‍🔥", font, 10);
+					ts->shaped_text_add_string(ctx, U"xs", font, 10);
+					RID sctx = ts->shaped_text_substr(ctx, 1, 5);
+					CHECK_FALSE_MESSAGE(sctx == RID(), "Creating substring text buffer failed.");
+					PackedInt32Array sbrk = ts->shaped_text_get_character_breaks(sctx);
+					CHECK_FALSE_MESSAGE(sbrk.size() != 2, "Invalid substring char breaks number.");
+					if (sbrk.size() == 2) {
+						CHECK_FALSE_MESSAGE(sbrk[0] != 5, "Invalid substring char break position.");
+						CHECK_FALSE_MESSAGE(sbrk[1] != 6, "Invalid substring char break position.");
+					}
+					PackedInt32Array fbrk = ts->shaped_text_get_character_breaks(ctx);
+					CHECK_FALSE_MESSAGE(fbrk.size() != 4, "Invalid char breaks number.");
+					if (fbrk.size() == 4) {
+						CHECK_FALSE_MESSAGE(fbrk[0] != 1, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[1] != 5, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[2] != 6, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(fbrk[3] != 7, "Invalid char break position.");
+					}
+					PackedInt32Array rbrk = ts->string_get_character_breaks(U"X❤️‍🔥xs");
+					CHECK_FALSE_MESSAGE(rbrk.size() != 4, "Invalid char breaks number.");
+					if (rbrk.size() == 4) {
+						CHECK_FALSE_MESSAGE(rbrk[0] != 1, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[1] != 5, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[2] != 6, "Invalid char break position.");
+						CHECK_FALSE_MESSAGE(rbrk[3] != 7, "Invalid char break position.");
+					}
+
+					ts->free_rid(sctx);
+					ts->free_rid(ctx);
+				}
 
 				{
 					String test = U"Test test long text long text\n";
@@ -429,7 +511,7 @@ TEST_SUITE("[TextServer]") {
 				RID font1 = ts->create_font();
 				ts->font_set_data_ptr(font1, _font_NotoSans_Regular, _font_NotoSans_Regular_size);
 				RID font2 = ts->create_font();
-				ts->font_set_data_ptr(font2, _font_NotoSansThaiUI_Regular, _font_NotoSansThaiUI_Regular_size);
+				ts->font_set_data_ptr(font2, _font_NotoSansThai_Regular, _font_NotoSansThai_Regular_size);
 
 				Array font;
 				font.push_back(font1);
@@ -555,6 +637,97 @@ TEST_SUITE("[TextServer]") {
 			}
 		}
 
+		SUBCASE("[TextServer] Unicode letters") {
+			for (int i = 0; i < TextServerManager::get_singleton()->get_interface_count(); i++) {
+				Ref<TextServer> ts = TextServerManager::get_singleton()->get_interface(i);
+				CHECK_FALSE_MESSAGE(ts.is_null(), "Invalid TS interface.");
+
+				struct ul_testcase {
+					int fail_index = -1; // Expecting failure at given index.
+					char32_t text[10]; // Using 0 as the terminator.
+				};
+				ul_testcase cases[14] = {
+					{
+							0,
+							{ 0x2D, 0x33, 0x30, 0, 0, 0, 0, 0, 0, 0 }, // "-30"
+					},
+					{
+							1,
+							{ 0x61, 0x2E, 0x31, 0, 0, 0, 0, 0, 0, 0 }, // "a.1"
+					},
+					{
+							1,
+							{ 0x61, 0x2C, 0x31, 0, 0, 0, 0, 0, 0, 0 }, // "a,1"
+					},
+					{
+							0,
+							{ 0x31, 0x65, 0x2D, 0x32, 0, 0, 0, 0, 0, 0 }, // "1e-2"
+					},
+					{
+							0,
+							{ 0xAB, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // "Left-Pointing Double Angle Quotation Mark"
+					},
+					{
+							-1,
+							{ 0x41, 0x42, 0, 0, 0, 0, 0, 0, 0, 0 }, // "AB"
+					},
+					{
+							4,
+							{ 0x54, 0x65, 0x73, 0x74, 0x31, 0, 0, 0, 0, 0 }, // "Test1"
+					},
+					{
+							2,
+							{ 0x54, 0x65, 0x2A, 0x73, 0x74, 0, 0, 0, 0, 0 }, // "Te*st"
+					},
+					{
+							4,
+							{ 0x74, 0x65, 0x73, 0x74, 0x5F, 0x74, 0x65, 0x73, 0x74, 0x65 }, // "test_teste"
+					},
+					{
+							4,
+							{ 0x74, 0x65, 0x73, 0x74, 0x20, 0x74, 0x65, 0x73, 0x74, 0 }, // "test test"
+					},
+					{
+							-1,
+							{ 0x643, 0x402, 0x716, 0xB05, 0, 0, 0, 0, 0, 0 }, // "كЂܖଅ" (arabic letters),
+					},
+					{
+							-1,
+							{ 0x643, 0x402, 0x716, 0xB05, 0x54, 0x65, 0x73, 0x74, 0x30AA, 0x4E21 }, // 0-3 arabic letters, 4-7 latin letters, 8-9 CJK letters
+					},
+					{
+							-1,
+							{ 0x4D2, 0x4D6, 0x4DA, 0x4DC, 0, 0, 0, 0, 0, 0 }, // "ӒӖӚӜ" cyrillic letters
+					},
+					{
+							-1,
+							{ 0xC2, 0xC3, 0xC4, 0xC5, 0x100, 0x102, 0x104, 0xC7, 0x106, 0x108 }, // "ÂÃÄÅĀĂĄÇĆĈ" rarer latin letters
+					},
+				};
+
+				for (int j = 0; j < 14; j++) {
+					ul_testcase test = cases[j];
+					int failed_on_index = -1;
+					for (int k = 0; k < 10; k++) {
+						char32_t character = test.text[k];
+						if (character == 0) {
+							break;
+						}
+						if (!ts->is_valid_letter(character)) {
+							failed_on_index = k;
+							break;
+						}
+					}
+
+					if (test.fail_index == -1) {
+						CHECK_MESSAGE(test.fail_index == failed_on_index, "In interface ", ts->get_name() + ": In test case ", j, ", the character at index ", failed_on_index, " should have been a letter.");
+					} else {
+						CHECK_MESSAGE(test.fail_index == failed_on_index, "In interface ", ts->get_name() + ": In test case ", j, ", expected first non-letter at index ", test.fail_index, ", but found at index ", failed_on_index);
+					}
+				}
+			}
+		}
+
 		SUBCASE("[TextServer] Strip Diacritics") {
 			for (int i = 0; i < TextServerManager::get_singleton()->get_interface_count(); i++) {
 				Ref<TextServer> ts = TextServerManager::get_singleton()->get_interface(i);
@@ -591,12 +764,18 @@ TEST_SUITE("[TextServer]") {
 					String text1 = U"linguistically similar and effectively form";
 					//                           14^     22^ 26^         38^
 					PackedInt32Array breaks = ts->string_get_word_breaks(text1, "en");
-					CHECK(breaks.size() == 4);
-					if (breaks.size() == 4) {
-						CHECK(breaks[0] == 14);
-						CHECK(breaks[1] == 22);
-						CHECK(breaks[2] == 26);
-						CHECK(breaks[3] == 38);
+					CHECK(breaks.size() == 10);
+					if (breaks.size() == 10) {
+						CHECK(breaks[0] == 0);
+						CHECK(breaks[1] == 14);
+						CHECK(breaks[2] == 15);
+						CHECK(breaks[3] == 22);
+						CHECK(breaks[4] == 23);
+						CHECK(breaks[5] == 26);
+						CHECK(breaks[6] == 27);
+						CHECK(breaks[7] == 38);
+						CHECK(breaks[8] == 39);
+						CHECK(breaks[9] == 43);
 					}
 				}
 
@@ -606,16 +785,74 @@ TEST_SUITE("[TextServer]") {
 					//                 3^   7^    13^ 16^  20^   25^ 29^ 32^
 
 					PackedInt32Array breaks = ts->string_get_word_breaks(text2, "th");
-					CHECK(breaks.size() == 8);
-					if (breaks.size() == 8) {
-						CHECK(breaks[0] == 3);
-						CHECK(breaks[1] == 7);
-						CHECK(breaks[2] == 13);
-						CHECK(breaks[3] == 16);
-						CHECK(breaks[4] == 20);
-						CHECK(breaks[5] == 25);
-						CHECK(breaks[6] == 29);
-						CHECK(breaks[7] == 32);
+					CHECK(breaks.size() == 18);
+					if (breaks.size() == 18) {
+						CHECK(breaks[0] == 0);
+						CHECK(breaks[1] == 4);
+						CHECK(breaks[2] == 4);
+						CHECK(breaks[3] == 8);
+						CHECK(breaks[4] == 8);
+						CHECK(breaks[5] == 14);
+						CHECK(breaks[6] == 14);
+						CHECK(breaks[7] == 17);
+						CHECK(breaks[8] == 17);
+						CHECK(breaks[9] == 21);
+						CHECK(breaks[10] == 21);
+						CHECK(breaks[11] == 26);
+						CHECK(breaks[12] == 26);
+						CHECK(breaks[13] == 30);
+						CHECK(breaks[14] == 30);
+						CHECK(breaks[15] == 33);
+						CHECK(breaks[16] == 33);
+						CHECK(breaks[17] == 42);
+					}
+				}
+
+				if (ts->has_feature(TextServer::FEATURE_BREAK_ITERATORS)) {
+					String text2 = U"U+2764 U+FE0F U+200D U+1F525 ; 13.1 # ❤️‍🔥";
+
+					PackedInt32Array breaks = ts->string_get_character_breaks(text2, "en");
+					CHECK(breaks.size() == 39);
+					if (breaks.size() == 39) {
+						CHECK(breaks[0] == 1);
+						CHECK(breaks[1] == 2);
+						CHECK(breaks[2] == 3);
+						CHECK(breaks[3] == 4);
+						CHECK(breaks[4] == 5);
+						CHECK(breaks[5] == 6);
+						CHECK(breaks[6] == 7);
+						CHECK(breaks[7] == 8);
+						CHECK(breaks[8] == 9);
+						CHECK(breaks[9] == 10);
+						CHECK(breaks[10] == 11);
+						CHECK(breaks[11] == 12);
+						CHECK(breaks[12] == 13);
+						CHECK(breaks[13] == 14);
+						CHECK(breaks[14] == 15);
+						CHECK(breaks[15] == 16);
+						CHECK(breaks[16] == 17);
+						CHECK(breaks[17] == 18);
+						CHECK(breaks[18] == 19);
+						CHECK(breaks[19] == 20);
+						CHECK(breaks[20] == 21);
+						CHECK(breaks[21] == 22);
+						CHECK(breaks[22] == 23);
+						CHECK(breaks[23] == 24);
+						CHECK(breaks[24] == 25);
+						CHECK(breaks[25] == 26);
+						CHECK(breaks[26] == 27);
+						CHECK(breaks[27] == 28);
+						CHECK(breaks[28] == 29);
+						CHECK(breaks[29] == 30);
+						CHECK(breaks[30] == 31);
+						CHECK(breaks[31] == 32);
+						CHECK(breaks[32] == 33);
+						CHECK(breaks[33] == 34);
+						CHECK(breaks[34] == 35);
+						CHECK(breaks[35] == 36);
+						CHECK(breaks[36] == 37);
+						CHECK(breaks[37] == 38);
+						CHECK(breaks[38] == 42);
 					}
 				}
 			}

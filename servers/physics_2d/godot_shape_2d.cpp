@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  godot_shape_2d.cpp                                                   */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  godot_shape_2d.cpp                                                    */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "godot_shape_2d.h"
 
@@ -123,7 +123,7 @@ void GodotWorldBoundaryShape2D::set_data(const Variant &p_data) {
 	ERR_FAIL_COND(arr.size() != 2);
 	normal = arr[0];
 	d = arr[1];
-	configure(Rect2(Vector2(-1e4, -1e4), Vector2(1e4 * 2, 1e4 * 2)));
+	configure(Rect2(Vector2(-1e15, -1e15), Vector2(1e15 * 2, 1e15 * 2)));
 }
 
 Variant GodotWorldBoundaryShape2D::get_data() const {
@@ -179,7 +179,7 @@ Variant GodotSeparationRayShape2D::get_data() const {
 /*********************************************************/
 
 void GodotSegmentShape2D::get_supports(const Vector2 &p_normal, Vector2 *r_supports, int &r_amount) const {
-	if (Math::abs(p_normal.dot(n)) > _SEGMENT_IS_VALID_SUPPORT_THRESHOLD) {
+	if (Math::abs(p_normal.dot(n)) > segment_is_valid_support_threshold) {
 		r_supports[0] = a;
 		r_supports[1] = b;
 		r_amount = 2;
@@ -308,7 +308,7 @@ void GodotRectangleShape2D::get_supports(const Vector2 &p_normal, Vector2 *r_sup
 		Vector2 ag;
 		ag[i] = 1.0;
 		real_t dp = ag.dot(p_normal);
-		if (Math::abs(dp) < _SEGMENT_IS_VALID_SUPPORT_THRESHOLD) {
+		if (Math::abs(dp) <= segment_is_valid_support_threshold) {
 			continue;
 		}
 
@@ -368,25 +368,21 @@ Variant GodotRectangleShape2D::get_data() const {
 void GodotCapsuleShape2D::get_supports(const Vector2 &p_normal, Vector2 *r_supports, int &r_amount) const {
 	Vector2 n = p_normal;
 
-	real_t d = n.y;
+	real_t h = height * 0.5 - radius; // half-height of the rectangle part
 
-	if (Math::abs(d) < (1.0 - _SEGMENT_IS_VALID_SUPPORT_THRESHOLD)) {
+	if (h > 0 && Math::abs(n.x) > segment_is_valid_support_threshold) {
 		// make it flat
 		n.y = 0.0;
-		n.normalize();
-		n *= radius;
+		n.x = SIGN(n.x) * radius;
 
 		r_amount = 2;
 		r_supports[0] = n;
-		r_supports[0].y += height * 0.5 - radius;
+		r_supports[0].y += h;
 		r_supports[1] = n;
-		r_supports[1].y -= height * 0.5 - radius;
-
+		r_supports[1].y -= h;
 	} else {
-		real_t h = height * 0.5 - radius;
-
 		n *= radius;
-		n.y += (d > 0) ? h : -h;
+		n.y += (n.y > 0) ? h : -h;
 		r_amount = 1;
 		*r_supports = n;
 	}
@@ -508,7 +504,7 @@ void GodotConvexPolygonShape2D::get_supports(const Vector2 &p_normal, Vector2 *r
 		}
 
 		//test segment
-		if (points[i].normal.dot(p_normal) > _SEGMENT_IS_VALID_SUPPORT_THRESHOLD) {
+		if (points[i].normal.dot(p_normal) > segment_is_valid_support_threshold) {
 			r_amount = 2;
 			r_supports[0] = points[i].pos;
 			r_supports[1] = points[(i + 1) % point_count].pos;
@@ -588,7 +584,7 @@ void GodotConvexPolygonShape2D::set_data(const Variant &p_data) {
 
 	if (p_data.get_type() == Variant::PACKED_VECTOR2_ARRAY) {
 		Vector<Vector2> arr = p_data;
-		ERR_FAIL_COND(arr.size() == 0);
+		ERR_FAIL_COND(arr.is_empty());
 		point_count = arr.size();
 		points = memnew_arr(Point, point_count);
 		const Vector2 *r = arr.ptr();

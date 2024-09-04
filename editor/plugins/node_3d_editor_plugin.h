@@ -1,65 +1,72 @@
-/*************************************************************************/
-/*  node_3d_editor_plugin.h                                              */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  node_3d_editor_plugin.h                                               */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef NODE_3D_EDITOR_PLUGIN_H
 #define NODE_3D_EDITOR_PLUGIN_H
 
-#include "editor/editor_plugin.h"
-#include "editor/editor_scale.h"
-#include "editor/editor_spin_slider.h"
+#include "core/math/dynamic_bvh.h"
+#include "editor/plugins/editor_plugin.h"
 #include "editor/plugins/node_3d_editor_gizmos.h"
-#include "scene/3d/camera_3d.h"
-#include "scene/3d/light_3d.h"
-#include "scene/3d/visual_instance_3d.h"
-#include "scene/3d/world_environment.h"
-#include "scene/gui/color_picker.h"
-#include "scene/gui/panel_container.h"
+#include "editor/themes/editor_scale.h"
+#include "scene/gui/box_container.h"
+#include "scene/gui/button.h"
 #include "scene/gui/spin_box.h"
-#include "scene/gui/split_container.h"
-#include "scene/resources/environment.h"
-#include "scene/resources/fog_material.h"
-#include "scene/resources/sky_material.h"
 
+class AcceptDialog;
+class CheckBox;
+class ColorPickerButton;
+class ConfirmationDialog;
+class DirectionalLight3D;
 class EditorData;
+class EditorSelection;
+class EditorSpinSlider;
+class HSplitContainer;
+class LineEdit;
+class MenuButton;
 class Node3DEditor;
 class Node3DEditorViewport;
+class OptionButton;
+class PanelContainer;
+class ProceduralSkyMaterial;
+class SubViewport;
 class SubViewportContainer;
-class DirectionalLight3D;
+class VSeparator;
+class VSplitContainer;
+class ViewportNavigationControl;
 class WorldEnvironment;
-class EditorUndoRedoManager;
 
 class ViewportRotationControl : public Control {
 	GDCLASS(ViewportRotationControl, Control);
 
 	struct Axis2D {
-		Vector2i screen_point;
+		Vector2 screen_point;
 		float z_axis = -99.0;
 		int axis = -1;
 	};
@@ -74,7 +81,7 @@ class ViewportRotationControl : public Control {
 	Vector<Color> axis_colors;
 	Vector<int> axis_menu_options;
 	Vector2i orbiting_mouse_start;
-	bool orbiting = false;
+	int orbiting_index = -1;
 	int focused_axis = -2;
 
 	const float AXIS_CIRCLE_RADIUS = 8.0f * EDSCALE;
@@ -87,6 +94,8 @@ protected:
 	void _get_sorted_axis(Vector<Axis2D> &r_axis);
 	void _update_focus();
 	void _on_mouse_exited();
+	void _process_click(int p_index, Vector2 p_position, bool p_pressed);
+	void _process_drag(Ref<InputEventWithModifiers> p_event, int p_index, Vector2 p_position, Vector2 p_relative_position);
 
 public:
 	void set_viewport(Node3DEditorViewport *p_viewport);
@@ -95,6 +104,7 @@ public:
 class Node3DEditorViewport : public Control {
 	GDCLASS(Node3DEditorViewport, Control);
 	friend class Node3DEditor;
+	friend class ViewportNavigationControl;
 	friend class ViewportRotationControl;
 	enum {
 		VIEW_TOP,
@@ -110,31 +120,37 @@ class Node3DEditorViewport : public Control {
 		VIEW_PERSPECTIVE,
 		VIEW_ENVIRONMENT,
 		VIEW_ORTHOGONAL,
+		VIEW_SWITCH_PERSPECTIVE_ORTHOGONAL,
 		VIEW_HALF_RESOLUTION,
 		VIEW_AUDIO_LISTENER,
 		VIEW_AUDIO_DOPPLER,
 		VIEW_GIZMOS,
+		VIEW_TRANSFORM_GIZMO,
+		VIEW_GRID,
 		VIEW_INFORMATION,
 		VIEW_FRAME_TIME,
+
+		// < Keep in sync with menu.
 		VIEW_DISPLAY_NORMAL,
 		VIEW_DISPLAY_WIREFRAME,
 		VIEW_DISPLAY_OVERDRAW,
-		VIEW_DISPLAY_SHADELESS,
 		VIEW_DISPLAY_LIGHTING,
+		VIEW_DISPLAY_UNSHADED,
 		VIEW_DISPLAY_ADVANCED,
+		// Advanced menu:
+		VIEW_DISPLAY_DEBUG_PSSM_SPLITS,
 		VIEW_DISPLAY_NORMAL_BUFFER,
 		VIEW_DISPLAY_DEBUG_SHADOW_ATLAS,
 		VIEW_DISPLAY_DEBUG_DIRECTIONAL_SHADOW_ATLAS,
+		VIEW_DISPLAY_DEBUG_DECAL_ATLAS,
 		VIEW_DISPLAY_DEBUG_VOXEL_GI_ALBEDO,
 		VIEW_DISPLAY_DEBUG_VOXEL_GI_LIGHTING,
 		VIEW_DISPLAY_DEBUG_VOXEL_GI_EMISSION,
+		VIEW_DISPLAY_DEBUG_SDFGI,
+		VIEW_DISPLAY_DEBUG_SDFGI_PROBES,
 		VIEW_DISPLAY_DEBUG_SCENE_LUMINANCE,
 		VIEW_DISPLAY_DEBUG_SSAO,
 		VIEW_DISPLAY_DEBUG_SSIL,
-		VIEW_DISPLAY_DEBUG_PSSM_SPLITS,
-		VIEW_DISPLAY_DEBUG_DECAL_ATLAS,
-		VIEW_DISPLAY_DEBUG_SDFGI,
-		VIEW_DISPLAY_DEBUG_SDFGI_PROBES,
 		VIEW_DISPLAY_DEBUG_GI_BUFFER,
 		VIEW_DISPLAY_DEBUG_DISABLE_LOD,
 		VIEW_DISPLAY_DEBUG_CLUSTER_OMNI_LIGHTS,
@@ -143,6 +159,9 @@ class Node3DEditorViewport : public Control {
 		VIEW_DISPLAY_DEBUG_CLUSTER_REFLECTION_PROBES,
 		VIEW_DISPLAY_DEBUG_OCCLUDERS,
 		VIEW_DISPLAY_MOTION_VECTORS,
+		VIEW_DISPLAY_INTERNAL_BUFFER,
+		VIEW_DISPLAY_MAX,
+		// > Keep in sync with menu.
 
 		VIEW_LOCK_ROTATION,
 		VIEW_CINEMATIC_PREVIEW,
@@ -174,12 +193,19 @@ public:
 		NAVIGATION_GODOT,
 		NAVIGATION_MAYA,
 		NAVIGATION_MODO,
+		NAVIGATION_CUSTOM,
 	};
 
 	enum FreelookNavigationScheme {
 		FREELOOK_DEFAULT,
 		FREELOOK_PARTIALLY_AXIS_LOCKED,
 		FREELOOK_FULLY_AXIS_LOCKED,
+	};
+
+	enum ViewportNavMouseButton {
+		NAVIGATION_LEFT_MOUSE,
+		NAVIGATION_MIDDLE_MOUSE,
+		NAVIGATION_RIGHT_MOUSE,
 	};
 
 private:
@@ -203,9 +229,7 @@ private:
 	Node *target_node = nullptr;
 	Point2 drop_pos;
 
-	EditorData *editor_data = nullptr;
 	EditorSelection *editor_selection = nullptr;
-	Ref<EditorUndoRedoManager> undo_redo;
 
 	CheckBox *preview_camera = nullptr;
 	SubViewportContainer *subviewport_container = nullptr;
@@ -220,12 +244,14 @@ private:
 	bool orthogonal;
 	bool auto_orthogonal;
 	bool lock_rotation;
+	bool transform_gizmo_visible = true;
 	real_t gizmo_scale;
 
 	bool freelook_active;
 	real_t freelook_speed;
 	Vector2 previous_mouse_position;
 
+	PanelContainer *info_panel = nullptr;
 	Label *info_label = nullptr;
 	Label *cinema_label = nullptr;
 	Label *locked_label = nullptr;
@@ -235,8 +261,13 @@ private:
 	Label *preview_material_label_desc = nullptr;
 
 	VBoxContainer *top_right_vbox = nullptr;
+	VBoxContainer *bottom_center_vbox = nullptr;
+	ViewportNavigationControl *position_control = nullptr;
+	ViewportNavigationControl *look_control = nullptr;
 	ViewportRotationControl *rotation_control = nullptr;
 	Gradient *frame_time_gradient = nullptr;
+	PanelContainer *frame_time_panel = nullptr;
+	VBoxContainer *frame_time_vbox = nullptr;
 	Label *cpu_time_label = nullptr;
 	Label *gpu_time_label = nullptr;
 	Label *fps_label = nullptr;
@@ -253,9 +284,7 @@ private:
 	void _select_clicked(bool p_allow_locked);
 	ObjectID _select_ray(const Point2 &p_pos) const;
 	void _find_items_at_pos(const Point2 &p_pos, Vector<_RayResult> &r_results, bool p_include_locked);
-	Vector3 _get_ray_pos(const Vector2 &p_pos) const;
-	Vector3 _get_ray(const Vector2 &p_pos) const;
-	Point2 _point_to_screen(const Vector3 &p_point);
+
 	Transform3D _get_camera_transform() const;
 	int get_selected_count() const;
 	void cancel_transform();
@@ -274,13 +303,18 @@ private:
 	void _nav_orbit(Ref<InputEventWithModifiers> p_event, const Vector2 &p_relative);
 	void _nav_look(Ref<InputEventWithModifiers> p_event, const Vector2 &p_relative);
 
+	bool _is_shortcut_empty(const String &p_name);
+	bool _is_nav_modifier_pressed(const String &p_name);
+	int _get_shortcut_input_count(const String &p_name);
+
 	float get_znear() const;
 	float get_zfar() const;
 	float get_fov() const;
 
 	ObjectID clicked;
 	ObjectID material_target;
-	Vector<_RayResult> selection_results;
+	Vector<Node3D *> selection_results;
+	Vector<Node3D *> selection_results_menu;
 	bool clicked_wants_append = false;
 	bool selection_in_progress = false;
 
@@ -296,7 +330,8 @@ private:
 		NAVIGATION_PAN,
 		NAVIGATION_ZOOM,
 		NAVIGATION_ORBIT,
-		NAVIGATION_LOOK
+		NAVIGATION_LOOK,
+		NAVIGATION_MOVE
 	};
 	enum TransformMode {
 		TRANSFORM_NONE,
@@ -332,6 +367,15 @@ private:
 		Variant gizmo_initial_value;
 		bool original_local;
 		bool instant;
+
+		// Numeric blender-style transforms (e.g. 'g5x').
+		// numeric_input tracks the current input value, e.g. 1.23.
+		// numeric_negate indicates whether '-' has been pressed to negate the value
+		// while numeric_next_decimal is 0, numbers are input before the decimal point
+		// after pressing '.', numeric next decimal changes to -1, and decrements after each press.
+		double numeric_input = 0.0;
+		bool numeric_negate = false;
+		int numeric_next_decimal = 0;
 	} _edit;
 
 	struct Cursor {
@@ -359,6 +403,28 @@ private:
 	void reset_fov();
 	void scale_cursor_distance(real_t scale);
 
+	struct ShortcutCheckSet {
+		bool mod_pressed = false;
+		bool shortcut_not_empty = true;
+		int input_count = 0;
+		ViewportNavMouseButton mouse_preference = NAVIGATION_LEFT_MOUSE;
+		NavigationMode result_nav_mode = NAVIGATION_NONE;
+
+		ShortcutCheckSet() {}
+
+		ShortcutCheckSet(bool p_mod_pressed, bool p_shortcut_not_empty, int p_input_count, const ViewportNavMouseButton &p_mouse_preference, const NavigationMode &p_result_nav_mode) :
+				mod_pressed(p_mod_pressed), shortcut_not_empty(p_shortcut_not_empty), input_count(p_input_count), mouse_preference(p_mouse_preference), result_nav_mode(p_result_nav_mode) {
+		}
+	};
+
+	struct ShortcutCheckSetComparator {
+		_FORCE_INLINE_ bool operator()(const ShortcutCheckSet &A, const ShortcutCheckSet &B) const {
+			return A.input_count > B.input_count;
+		}
+	};
+
+	NavigationMode _get_nav_mode_from_shortcut_check(ViewportNavMouseButton p_mouse_button, Vector<ShortcutCheckSet> p_shortcut_check_sets, bool p_use_not_empty);
+
 	void set_freelook_active(bool active_now);
 	void scale_freelook_speed(real_t scale);
 
@@ -371,10 +437,11 @@ private:
 	String message;
 	double message_time;
 
-	void set_message(String p_message, float p_time = 5);
+	void set_message(const String &p_message, float p_time = 5);
 
 	void _view_settings_confirmed(real_t p_interp_delta);
 	void _update_camera(real_t p_interp_delta);
+	void _update_navigation_controls_visibility();
 	Transform3D to_camera_transform(const Cursor &p_cursor) const;
 	void _draw();
 
@@ -383,6 +450,7 @@ private:
 	void _surface_focus_enter();
 	void _surface_focus_exit();
 
+	void input(const Ref<InputEvent> &p_event) override;
 	void _sinput(const Ref<InputEvent> &p_event);
 	void _update_freelook(real_t delta);
 	Node3DEditor *spatial_editor = nullptr;
@@ -390,7 +458,8 @@ private:
 	Camera3D *previewing = nullptr;
 	Camera3D *preview = nullptr;
 
-	bool previewing_cinema;
+	bool previewing_camera = false;
+	bool previewing_cinema = false;
 	bool _is_node_locked(const Node *p_node);
 	void _preview_exited_scene();
 	void _toggle_camera_preview(bool);
@@ -400,10 +469,10 @@ private:
 	void _selection_result_pressed(int);
 	void _selection_menu_hide();
 	void _list_select(Ref<InputEventMouseButton> b);
-	Point2i _get_warped_mouse_motion(const Ref<InputEventMouseMotion> &p_ev_mouse_motion) const;
+	Point2 _get_warped_mouse_motion(const Ref<InputEventMouseMotion> &p_ev_mouse_motion) const;
 
 	Vector3 _get_instance_position(const Point2 &p_pos) const;
-	static AABB _calculate_spatial_bounds(const Node3D *p_parent, bool p_exclude_top_level_transform = true);
+	static AABB _calculate_spatial_bounds(const Node3D *p_parent, const Node3D *p_top_level_parent = nullptr);
 
 	Node *_sanitize_preview_node(Node *p_node) const;
 
@@ -412,8 +481,9 @@ private:
 	bool _apply_preview_material(ObjectID p_target, const Point2 &p_point) const;
 	void _reset_preview_material() const;
 	void _remove_preview_material();
-	bool _cyclical_dependency_exists(const String &p_target_scene_path, Node *p_desired_node);
-	bool _create_instance(Node *parent, String &path, const Point2 &p_point);
+	bool _cyclical_dependency_exists(const String &p_target_scene_path, Node *p_desired_node) const;
+	bool _create_instance(Node *p_parent, const String &p_path, const Point2 &p_point);
+	bool _create_audio_node(Node *p_parent, const String &p_path, const Point2 &p_point);
 	void _perform_drop_data();
 
 	bool can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from);
@@ -425,11 +495,15 @@ private:
 
 	void begin_transform(TransformMode p_mode, bool instant);
 	void commit_transform();
-	void update_transform(Point2 p_mousepos, bool p_shift);
+	void apply_transform(Vector3 p_motion, double p_snap);
+	void update_transform(bool p_shift);
+	void update_transform_numeric();
 	void finish_transform();
 
-	void register_shortcut_action(const String &p_path, const String &p_name, Key p_keycode);
+	void register_shortcut_action(const String &p_path, const String &p_name, Key p_keycode, bool p_physical = false);
 	void shortcut_changed_callback(const Ref<Shortcut> p_shortcut, const String &p_shortcut_path);
+
+	void _set_lock_view_rotation(bool p_lock_rotation);
 
 protected:
 	void _notification(int p_what);
@@ -444,6 +518,10 @@ public:
 	Dictionary get_state() const;
 	void reset();
 	bool is_freelook_active() const { return freelook_active; }
+
+	Vector3 get_ray_pos(const Vector2 &p_pos) const;
+	Vector3 get_ray(const Vector2 &p_pos) const;
+	Point2 point_to_screen(const Vector3 &p_point);
 
 	void focus_selection();
 
@@ -474,7 +552,7 @@ public:
 	RID sbox_instance_xray;
 	RID sbox_instance_xray_offset;
 	Ref<EditorNode3DGizmo> gizmo;
-	HashMap<int, Transform3D> subgizmos; // map ID -> initial transform
+	HashMap<int, Transform3D> subgizmos; // Key: Subgizmo ID, Value: Initial subgizmo transform.
 
 	Node3DEditorSelectedItem() {
 		sp = nullptr;
@@ -562,17 +640,18 @@ private:
 
 	ToolMode tool_mode;
 
-	RID origin;
+	RID origin_mesh;
+	RID origin_multimesh;
 	RID origin_instance;
 	bool origin_enabled = false;
 	RID grid[3];
 	RID grid_instance[3];
-	bool grid_visible[3]; //currently visible
-	bool grid_enable[3]; //should be always visible if true
+	bool grid_visible[3] = { false, false, false }; //currently visible
+	bool grid_enable[3] = { false, false, false }; //should be always visible if true
 	bool grid_enabled = false;
 	bool grid_init_draw = false;
 	Camera3D::ProjectionType grid_camera_last_update_perspective = Camera3D::PROJECTION_PERSPECTIVE;
-	Vector3 grid_camera_last_update_position = Vector3();
+	Vector3 grid_camera_last_update_position;
 
 	Ref<ArrayMesh> move_gizmo[3], move_plane_gizmo[3], rotate_gizmo[4], scale_gizmo[3], scale_plane_gizmo[3], axis_gizmo[3];
 	Ref<StandardMaterial3D> gizmo_color[3];
@@ -586,6 +665,8 @@ private:
 	int current_hover_gizmo_handle;
 	bool current_hover_gizmo_handle_secondary;
 
+	DynamicBVH gizmo_bvh;
+
 	real_t snap_translate_value;
 	real_t snap_rotate_value;
 	real_t snap_scale_value;
@@ -596,7 +677,7 @@ private:
 	RID indicators_instance;
 	RID cursor_mesh;
 	RID cursor_instance;
-	Ref<StandardMaterial3D> indicator_mat;
+	Ref<ShaderMaterial> origin_mat;
 	Ref<ShaderMaterial> grid_mat[3];
 	Ref<StandardMaterial3D> cursor_material;
 
@@ -682,11 +763,13 @@ private:
 	void _update_camera_override_viewport(Object *p_viewport);
 	// Used for secondary menu items which are displayed depending on the currently selected node
 	// (such as MeshInstance's "Mesh" menu).
-	PanelContainer *context_menu_panel = nullptr;
-	HBoxContainer *context_menu_hbox = nullptr;
+	PanelContainer *context_toolbar_panel = nullptr;
+	HBoxContainer *context_toolbar_hbox = nullptr;
+	HashMap<Control *, VSeparator *> context_toolbar_separators;
+
+	void _update_context_toolbar();
 
 	void _generate_selection_boxes();
-	Ref<EditorUndoRedoManager> undo_redo;
 
 	int camera_override_viewport_id;
 
@@ -708,6 +791,7 @@ private:
 	Node3D *selected = nullptr;
 
 	void _request_gizmo(Object *p_obj);
+	void _request_gizmo_for_id(ObjectID p_id);
 	void _set_subgizmo_selection(Object *p_obj, Ref<Node3DGizmo> p_gizmo, int p_id, Transform3D p_transform = Transform3D());
 	void _clear_subgizmo_selection(Object *p_obj = nullptr);
 
@@ -812,9 +896,9 @@ public:
 	bool are_local_coords_enabled() const { return tool_option_button[Node3DEditor::TOOL_OPT_LOCAL_COORDS]->is_pressed(); }
 	void set_local_coords_enabled(bool on) const { tool_option_button[Node3DEditor::TOOL_OPT_LOCAL_COORDS]->set_pressed(on); }
 	bool is_snap_enabled() const { return snap_enabled ^ snap_key_enabled; }
-	double get_translate_snap() const;
-	double get_rotate_snap() const;
-	double get_scale_snap() const;
+	real_t get_translate_snap() const;
+	real_t get_rotate_snap() const;
+	real_t get_scale_snap() const;
 
 	Ref<ArrayMesh> get_move_gizmo(int idx) const { return move_gizmo[idx]; }
 	Ref<ArrayMesh> get_axis_gizmo(int idx) const { return axis_gizmo[idx]; }
@@ -835,9 +919,6 @@ public:
 
 	Ref<Environment> get_viewport_environment() { return viewport_environment; }
 
-	void set_undo_redo(Ref<EditorUndoRedoManager> p_undo_redo);
-	Ref<EditorUndoRedoManager> get_undo_redo();
-
 	void add_control_to_menu_panel(Control *p_control);
 	void remove_control_from_menu_panel(Control *p_control);
 
@@ -856,6 +937,7 @@ public:
 	bool is_current_selected_gizmo(const EditorNode3DGizmo *p_gizmo);
 	bool is_subgizmo_selected(int p_id);
 	Vector<int> get_subgizmo_selection();
+	void clear_subgizmo_selection(Object *p_obj = nullptr);
 
 	Ref<EditorNode3DGizmo> get_current_hover_gizmo() const { return current_hover_gizmo; }
 	void set_current_hover_gizmo(Ref<EditorNode3DGizmo> p_gizmo) { current_hover_gizmo = p_gizmo; }
@@ -889,6 +971,12 @@ public:
 	void add_gizmo_plugin(Ref<EditorNode3DGizmoPlugin> p_plugin);
 	void remove_gizmo_plugin(Ref<EditorNode3DGizmoPlugin> p_plugin);
 
+	DynamicBVH::ID insert_gizmo_bvh_node(Node3D *p_node, const AABB &p_aabb);
+	void update_gizmo_bvh_node(DynamicBVH::ID p_id, const AABB &p_aabb);
+	void remove_gizmo_bvh_node(DynamicBVH::ID p_id);
+	Vector<Node3D *> gizmo_bvh_ray_query(const Vector3 &p_ray_start, const Vector3 &p_ray_end);
+	Vector<Node3D *> gizmo_bvh_frustum_query(const Vector<Plane> &p_frustum);
+
 	void edit(Node3D *p_spatial);
 	void clear();
 
@@ -917,6 +1005,33 @@ public:
 
 	Node3DEditorPlugin();
 	~Node3DEditorPlugin();
+};
+
+class ViewportNavigationControl : public Control {
+	GDCLASS(ViewportNavigationControl, Control);
+
+	Node3DEditorViewport *viewport = nullptr;
+	Vector2i focused_mouse_start;
+	Vector2 focused_pos;
+	bool hovered = false;
+	int focused_index = -1;
+	Node3DEditorViewport::NavigationMode nav_mode = Node3DEditorViewport::NavigationMode::NAVIGATION_NONE;
+
+	const float AXIS_CIRCLE_RADIUS = 30.0f * EDSCALE;
+
+protected:
+	void _notification(int p_what);
+	virtual void gui_input(const Ref<InputEvent> &p_event) override;
+	void _draw();
+	void _on_mouse_entered();
+	void _on_mouse_exited();
+	void _process_click(int p_index, Vector2 p_position, bool p_pressed);
+	void _process_drag(int p_index, Vector2 p_position, Vector2 p_relative_position);
+	void _update_navigation();
+
+public:
+	void set_navigation_mode(Node3DEditorViewport::NavigationMode p_nav_mode);
+	void set_viewport(Node3DEditorViewport *p_viewport);
 };
 
 #endif // NODE_3D_EDITOR_PLUGIN_H

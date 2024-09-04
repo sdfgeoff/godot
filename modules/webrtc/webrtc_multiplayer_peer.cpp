@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  webrtc_multiplayer_peer.cpp                                          */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  webrtc_multiplayer_peer.cpp                                           */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "webrtc_multiplayer_peer.h"
 
@@ -42,7 +42,6 @@ void WebRTCMultiplayerPeer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("has_peer", "peer_id"), &WebRTCMultiplayerPeer::has_peer);
 	ClassDB::bind_method(D_METHOD("get_peer", "peer_id"), &WebRTCMultiplayerPeer::get_peer);
 	ClassDB::bind_method(D_METHOD("get_peers"), &WebRTCMultiplayerPeer::get_peers);
-	ClassDB::bind_method(D_METHOD("close"), &WebRTCMultiplayerPeer::close);
 }
 
 void WebRTCMultiplayerPeer::set_target_peer(int p_peer_id) {
@@ -60,7 +59,7 @@ int WebRTCMultiplayerPeer::get_packet_channel() const {
 
 MultiplayerPeer::TransferMode WebRTCMultiplayerPeer::get_packet_mode() const {
 	ERR_FAIL_INDEX_V(next_packet_channel, channels_modes.size(), TRANSFER_MODE_RELIABLE);
-	return channels_modes[next_packet_channel];
+	return channels_modes.get(next_packet_channel);
 }
 
 bool WebRTCMultiplayerPeer::is_server() const {
@@ -129,7 +128,6 @@ void WebRTCMultiplayerPeer::poll() {
 			// Server connected.
 			connection_status = CONNECTION_CONNECTED;
 			emit_signal(SNAME("peer_connected"), TARGET_PEER_SERVER);
-			emit_signal(SNAME("connection_succeeded"));
 		} else {
 			emit_signal(SNAME("peer_connected"), E);
 		}
@@ -310,18 +308,18 @@ Error WebRTCMultiplayerPeer::add_peer(Ref<WebRTCPeerConnection> p_peer, int p_pe
 	cfg["ordered"] = true;
 
 	cfg["id"] = 1;
-	peer->channels[CH_RELIABLE] = p_peer->create_data_channel("reliable", cfg);
-	ERR_FAIL_COND_V(peer->channels[CH_RELIABLE].is_null(), FAILED);
+	peer->channels.get(CH_RELIABLE) = p_peer->create_data_channel("reliable", cfg);
+	ERR_FAIL_COND_V(peer->channels.get(CH_RELIABLE).is_null(), FAILED);
 
 	cfg["id"] = 2;
 	cfg["maxPacketLifetime"] = p_unreliable_lifetime;
-	peer->channels[CH_ORDERED] = p_peer->create_data_channel("ordered", cfg);
-	ERR_FAIL_COND_V(peer->channels[CH_ORDERED].is_null(), FAILED);
+	peer->channels.get(CH_ORDERED) = p_peer->create_data_channel("ordered", cfg);
+	ERR_FAIL_COND_V(peer->channels.get(CH_ORDERED).is_null(), FAILED);
 
 	cfg["id"] = 3;
 	cfg["ordered"] = false;
-	peer->channels[CH_UNRELIABLE] = p_peer->create_data_channel("unreliable", cfg);
-	ERR_FAIL_COND_V(peer->channels[CH_UNRELIABLE].is_null(), FAILED);
+	peer->channels.get(CH_UNRELIABLE) = p_peer->create_data_channel("unreliable", cfg);
+	ERR_FAIL_COND_V(peer->channels.get(CH_UNRELIABLE).is_null(), FAILED);
 
 	for (const Dictionary &dict : channels_config) {
 		Ref<WebRTCDataChannel> ch = p_peer->create_data_channel(String::num_int64(dict["id"]), dict);
@@ -342,13 +340,20 @@ void WebRTCMultiplayerPeer::remove_peer(int p_peer_id) {
 		peer->connected = false;
 		emit_signal(SNAME("peer_disconnected"), p_peer_id);
 		if (network_mode == MODE_CLIENT && p_peer_id == TARGET_PEER_SERVER) {
-			if (connection_status == CONNECTION_CONNECTING) {
-				emit_signal(SNAME("connection_failed"));
-			} else {
-				emit_signal(SNAME("server_disconnected"));
-			}
 			connection_status = CONNECTION_DISCONNECTED;
 		}
+	}
+}
+
+void WebRTCMultiplayerPeer::disconnect_peer(int p_peer_id, bool p_force) {
+	ERR_FAIL_COND(!peer_map.has(p_peer_id));
+	if (p_force) {
+		peer_map.erase(p_peer_id);
+		if (network_mode == MODE_CLIENT && p_peer_id == TARGET_PEER_SERVER) {
+			connection_status = CONNECTION_DISCONNECTED;
+		}
+	} else {
+		peer_map[p_peer_id]->connection->close(); // Will be removed during next poll.
 	}
 }
 
@@ -395,8 +400,8 @@ Error WebRTCMultiplayerPeer::put_packet(const uint8_t *p_buffer, int p_buffer_si
 		ERR_FAIL_COND_V_MSG(!E, ERR_INVALID_PARAMETER, "Invalid target peer: " + itos(target_peer) + ".");
 
 		ERR_FAIL_COND_V_MSG(E->value->channels.size() <= ch, ERR_INVALID_PARAMETER, vformat("Unable to send packet on channel %d, max channels: %d", ch, E->value->channels.size()));
-		ERR_FAIL_COND_V(E->value->channels[ch].is_null(), ERR_BUG);
-		return E->value->channels[ch]->put_packet(p_buffer, p_buffer_size);
+		ERR_FAIL_COND_V(E->value->channels.get(ch).is_null(), ERR_BUG);
+		return E->value->channels.get(ch)->put_packet(p_buffer, p_buffer_size);
 
 	} else {
 		int exclude = -target_peer;
@@ -408,8 +413,8 @@ Error WebRTCMultiplayerPeer::put_packet(const uint8_t *p_buffer, int p_buffer_si
 			}
 
 			ERR_CONTINUE_MSG(F.value->channels.size() <= ch, vformat("Unable to send packet on channel %d, max channels: %d", ch, F.value->channels.size()));
-			ERR_CONTINUE(F.value->channels[ch].is_null());
-			F.value->channels[ch]->put_packet(p_buffer, p_buffer_size);
+			ERR_CONTINUE(F.value->channels.get(ch).is_null());
+			F.value->channels.get(ch)->put_packet(p_buffer, p_buffer_size);
 		}
 	}
 	return OK;

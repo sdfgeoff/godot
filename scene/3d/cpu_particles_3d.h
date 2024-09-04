@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  cpu_particles_3d.h                                                   */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  cpu_particles_3d.h                                                    */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef CPU_PARTICLES_3D_H
 #define CPU_PARTICLES_3D_H
@@ -81,6 +81,7 @@ public:
 
 private:
 	bool emitting = false;
+	bool active = false;
 
 	struct Particle {
 		Transform3D transform;
@@ -101,7 +102,6 @@ private:
 	};
 
 	double time = 0.0;
-	double inactive_time = 0.0;
 	double frame_remainder = 0.0;
 	int cycle = 0;
 	bool redraw = false;
@@ -138,6 +138,7 @@ private:
 	real_t randomness_ratio = 0.0;
 	double lifetime_randomness = 0.0;
 	double speed_scale = 1.0;
+	AABB visibility_aabb;
 	bool local_coords = false;
 	int fixed_fps = 0;
 	bool fractional_delta = true;
@@ -177,6 +178,7 @@ private:
 	real_t emission_ring_height = 0.0;
 	real_t emission_ring_radius = 0.0;
 	real_t emission_ring_inner_radius = 0.0;
+	real_t emission_ring_cone_angle = 0.0;
 
 	Ref<Curve> scale_curve_x;
 	Ref<Curve> scale_curve_y;
@@ -210,6 +212,7 @@ public:
 	void set_pre_process_time(double p_time);
 	void set_explosiveness_ratio(real_t p_ratio);
 	void set_randomness_ratio(real_t p_ratio);
+	void set_visibility_aabb(const AABB &p_aabb);
 	void set_lifetime_randomness(double p_random);
 	void set_use_local_coordinates(bool p_enable);
 	void set_speed_scale(double p_scale);
@@ -221,6 +224,7 @@ public:
 	double get_pre_process_time() const;
 	real_t get_explosiveness_ratio() const;
 	real_t get_randomness_ratio() const;
+	AABB get_visibility_aabb() const;
 	double get_lifetime_randomness() const;
 	bool get_use_local_coordinates() const;
 	double get_speed_scale() const;
@@ -279,6 +283,7 @@ public:
 	void set_emission_ring_height(real_t p_height);
 	void set_emission_ring_radius(real_t p_radius);
 	void set_emission_ring_inner_radius(real_t p_radius);
+	void set_emission_ring_cone_angle(real_t p_angle);
 	void set_scale_curve_x(Ref<Curve> p_scale_curve);
 	void set_scale_curve_y(Ref<Curve> p_scale_curve);
 	void set_scale_curve_z(Ref<Curve> p_scale_curve);
@@ -294,6 +299,7 @@ public:
 	real_t get_emission_ring_height() const;
 	real_t get_emission_ring_radius() const;
 	real_t get_emission_ring_inner_radius() const;
+	real_t get_emission_ring_cone_angle() const;
 	Ref<Curve> get_scale_curve_x() const;
 	Ref<Curve> get_scale_curve_y() const;
 	Ref<Curve> get_scale_curve_z() const;
@@ -307,6 +313,8 @@ public:
 	void restart();
 
 	void convert_from_particles(Node *p_particles);
+
+	AABB capture_aabb() const;
 
 	CPUParticles3D();
 	~CPUParticles3D();

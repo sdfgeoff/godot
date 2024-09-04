@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  image.h                                                              */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  image.h                                                               */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef IMAGE_H
 #define IMAGE_H
@@ -48,6 +48,7 @@ typedef Vector<uint8_t> (*SavePNGBufferFunc)(const Ref<Image> &p_img);
 typedef Error (*SaveJPGFunc)(const String &p_path, const Ref<Image> &p_img, float p_quality);
 typedef Vector<uint8_t> (*SaveJPGBufferFunc)(const Ref<Image> &p_img, float p_quality);
 typedef Ref<Image> (*ImageMemLoadFunc)(const uint8_t *p_png, int p_size);
+typedef Ref<Image> (*ScalableImageMemLoadFunc)(const uint8_t *p_data, int p_size, float p_scale);
 typedef Error (*SaveWebPFunc)(const String &p_path, const Ref<Image> &p_img, const bool p_lossy, const float p_quality);
 typedef Vector<uint8_t> (*SaveWebPBufferFunc)(const Ref<Image> &p_img, const bool p_lossy, const float p_quality);
 
@@ -109,6 +110,10 @@ public:
 		FORMAT_ETC2_RGB8A1,
 		FORMAT_ETC2_RA_AS_RG, //used to make basis universal happy
 		FORMAT_DXT5_RA_AS_RG, //used to make basis universal happy
+		FORMAT_ASTC_4x4,
+		FORMAT_ASTC_4x4_HDR,
+		FORMAT_ASTC_8x8,
+		FORMAT_ASTC_8x8_HDR,
 		FORMAT_MAX
 	};
 
@@ -134,21 +139,33 @@ public:
 	};
 	//some functions provided by something else
 
+	enum ASTCFormat {
+		ASTC_FORMAT_4x4,
+		ASTC_FORMAT_8x8,
+	};
+
 	static ImageMemLoadFunc _png_mem_loader_func;
+	static ImageMemLoadFunc _png_mem_unpacker_func;
 	static ImageMemLoadFunc _jpg_mem_loader_func;
 	static ImageMemLoadFunc _webp_mem_loader_func;
 	static ImageMemLoadFunc _tga_mem_loader_func;
 	static ImageMemLoadFunc _bmp_mem_loader_func;
+	static ScalableImageMemLoadFunc _svg_scalable_mem_loader_func;
+	static ImageMemLoadFunc _ktx_mem_loader_func;
 
-	static void (*_image_compress_bc_func)(Image *, float, UsedChannels p_channels);
-	static void (*_image_compress_bptc_func)(Image *, float p_lossy_quality, UsedChannels p_channels);
-	static void (*_image_compress_etc1_func)(Image *, float);
-	static void (*_image_compress_etc2_func)(Image *, float, UsedChannels p_channels);
+	static void (*_image_compress_bc_func)(Image *, UsedChannels p_channels);
+	static void (*_image_compress_bptc_func)(Image *, UsedChannels p_channels);
+	static void (*_image_compress_etc1_func)(Image *);
+	static void (*_image_compress_etc2_func)(Image *, UsedChannels p_channels);
+	static void (*_image_compress_astc_func)(Image *, ASTCFormat p_format);
+
+	static Error (*_image_compress_bptc_rd_func)(Image *, UsedChannels p_channels);
 
 	static void (*_image_decompress_bc)(Image *);
 	static void (*_image_decompress_bptc)(Image *);
 	static void (*_image_decompress_etc1)(Image *);
 	static void (*_image_decompress_etc2)(Image *);
+	static void (*_image_decompress_astc)(Image *);
 
 	static Vector<uint8_t> (*webp_lossy_packer)(const Ref<Image> &p_image, float p_quality);
 	static Vector<uint8_t> (*webp_lossless_packer)(const Ref<Image> &p_image);
@@ -180,9 +197,9 @@ private:
 		data = p_image.data;
 	}
 
-	_FORCE_INLINE_ void _get_mipmap_offset_and_size(int p_mipmap, int &r_offset, int &r_width, int &r_height) const; //get where the mipmap begins in data
+	_FORCE_INLINE_ void _get_mipmap_offset_and_size(int p_mipmap, int64_t &r_offset, int &r_width, int &r_height) const; //get where the mipmap begins in data
 
-	static int _get_dst_image_size(int p_width, int p_height, Format p_format, int &r_mipmaps, int p_mipmaps = -1, int *r_mm_width = nullptr, int *r_mm_height = nullptr);
+	static int64_t _get_dst_image_size(int p_width, int p_height, Format p_format, int &r_mipmaps, int p_mipmaps = -1, int *r_mm_width = nullptr, int *r_mm_height = nullptr);
 	bool _can_modify(Format p_format) const;
 
 	_FORCE_INLINE_ void _get_clipped_src_and_dest_rects(const Ref<Image> &p_src, const Rect2i &p_src_rect, const Point2i &p_dest, Rect2i &r_clipped_src_rect, Rect2i &r_clipped_dest_rect) const;
@@ -223,10 +240,12 @@ public:
 	 */
 	Format get_format() const;
 
-	int get_mipmap_byte_size(int p_mipmap) const; //get where the mipmap begins in data
-	int get_mipmap_offset(int p_mipmap) const; //get where the mipmap begins in data
-	void get_mipmap_offset_and_size(int p_mipmap, int &r_ofs, int &r_size) const; //get where the mipmap begins in data
-	void get_mipmap_offset_size_and_dimensions(int p_mipmap, int &r_ofs, int &r_size, int &w, int &h) const; //get where the mipmap begins in data
+	/**
+	 * Get where the mipmap begins in data.
+	 */
+	int64_t get_mipmap_offset(int p_mipmap) const;
+	void get_mipmap_offset_and_size(int p_mipmap, int64_t &r_ofs, int64_t &r_size) const;
+	void get_mipmap_offset_size_and_dimensions(int p_mipmap, int64_t &r_ofs, int64_t &r_size, int &w, int &h) const;
 
 	enum Image3DValidateError {
 		VALIDATE_3D_OK,
@@ -298,8 +317,8 @@ public:
 	Error save_jpg(const String &p_path, float p_quality = 0.75) const;
 	Vector<uint8_t> save_png_to_buffer() const;
 	Vector<uint8_t> save_jpg_to_buffer(float p_quality = 0.75) const;
-	Vector<uint8_t> save_exr_to_buffer(bool p_grayscale) const;
-	Error save_exr(const String &p_path, bool p_grayscale) const;
+	Vector<uint8_t> save_exr_to_buffer(bool p_grayscale = false) const;
+	Error save_exr(const String &p_path, bool p_grayscale = false) const;
 	Error save_webp(const String &p_path, const bool p_lossy = false, const float p_quality = 0.75f) const;
 	Vector<uint8_t> save_webp_to_buffer(const bool p_lossy = false, const float p_quality = 0.75f) const;
 
@@ -336,17 +355,18 @@ public:
 	static int get_format_block_size(Format p_format);
 	static void get_format_min_pixel_size(Format p_format, int &r_w, int &r_h);
 
-	static int get_image_data_size(int p_width, int p_height, Format p_format, bool p_mipmaps = false);
+	static int64_t get_image_data_size(int p_width, int p_height, Format p_format, bool p_mipmaps = false);
 	static int get_image_required_mipmaps(int p_width, int p_height, Format p_format);
 	static Size2i get_image_mipmap_size(int p_width, int p_height, Format p_format, int p_mipmap);
-	static int get_image_mipmap_offset(int p_width, int p_height, Format p_format, int p_mipmap);
-	static int get_image_mipmap_offset_and_dimensions(int p_width, int p_height, Format p_format, int p_mipmap, int &r_w, int &r_h);
+	static int64_t get_image_mipmap_offset(int p_width, int p_height, Format p_format, int p_mipmap);
+	static int64_t get_image_mipmap_offset_and_dimensions(int p_width, int p_height, Format p_format, int p_mipmap, int &r_w, int &r_h);
 
 	enum CompressMode {
 		COMPRESS_S3TC,
 		COMPRESS_ETC,
 		COMPRESS_ETC2,
 		COMPRESS_BPTC,
+		COMPRESS_ASTC,
 		COMPRESS_MAX,
 	};
 	enum CompressSource {
@@ -356,18 +376,22 @@ public:
 		COMPRESS_SOURCE_MAX,
 	};
 
-	Error compress(CompressMode p_mode, CompressSource p_source = COMPRESS_SOURCE_GENERIC, float p_lossy_quality = 0.7);
-	Error compress_from_channels(CompressMode p_mode, UsedChannels p_channels, float p_lossy_quality = 0.7);
+	Error compress(CompressMode p_mode, CompressSource p_source = COMPRESS_SOURCE_GENERIC, ASTCFormat p_astc_format = ASTC_FORMAT_4x4);
+	Error compress_from_channels(CompressMode p_mode, UsedChannels p_channels, ASTCFormat p_astc_format = ASTC_FORMAT_4x4);
 	Error decompress();
 	bool is_compressed() const;
+	static bool is_format_compressed(Format p_format);
 
 	void fix_alpha_edges();
 	void premultiply_alpha();
 	void srgb_to_linear();
+	void linear_to_srgb();
 	void normal_map_to_xy();
 	Ref<Image> rgbe_to_srgb();
-	Ref<Image> get_image_from_mipmap(int p_mipamp) const;
+	Ref<Image> get_image_from_mipmap(int p_mipmap) const;
 	void bump_map_to_normal_map(float bump_scale = 1.0);
+
+	bool detect_signed(bool p_include_mips = true) const;
 
 	void blit_rect(const Ref<Image> &p_src, const Rect2i &p_src_rect, const Point2i &p_dest);
 	void blit_rect_mask(const Ref<Image> &p_src, const Ref<Image> &p_mask, const Rect2i &p_src_rect, const Point2i &p_dest);
@@ -377,10 +401,10 @@ public:
 	void fill_rect(const Rect2i &p_rect, const Color &p_color);
 
 	Rect2i get_used_rect() const;
-	Ref<Image> get_rect(const Rect2i &p_area) const;
+	Ref<Image> get_region(const Rect2i &p_area) const;
 
-	static void set_compress_bc_func(void (*p_compress_func)(Image *, float, UsedChannels));
-	static void set_compress_bptc_func(void (*p_compress_func)(Image *, float, UsedChannels));
+	static void set_compress_bc_func(void (*p_compress_func)(Image *, UsedChannels));
+	static void set_compress_bptc_func(void (*p_compress_func)(Image *, UsedChannels));
 	static String get_format_name(Format p_format);
 
 	Error load_png_from_buffer(const Vector<uint8_t> &p_array);
@@ -388,9 +412,14 @@ public:
 	Error load_webp_from_buffer(const Vector<uint8_t> &p_array);
 	Error load_tga_from_buffer(const Vector<uint8_t> &p_array);
 	Error load_bmp_from_buffer(const Vector<uint8_t> &p_array);
+	Error load_ktx_from_buffer(const Vector<uint8_t> &p_array);
+
+	Error load_svg_from_buffer(const Vector<uint8_t> &p_array, float scale = 1.0);
+	Error load_svg_from_string(const String &p_svg_str, float scale = 1.0);
 
 	void convert_rg_to_ra_rgba8();
 	void convert_ra_rgba8_to_rg();
+	void convert_rgba8_to_bgra8();
 
 	Image(const uint8_t *p_mem_png_jpg, int p_len = -1);
 	Image(const char **p_xpm);
@@ -405,12 +434,16 @@ public:
 	void set_pixelv(const Point2i &p_point, const Color &p_color);
 	void set_pixel(int p_x, int p_y, const Color &p_color);
 
+	const uint8_t *ptr() const;
+	uint8_t *ptrw();
+	int64_t get_data_size() const;
+
 	void adjust_bcs(float p_brightness, float p_contrast, float p_saturation);
 
 	void set_as_black();
 
 	void copy_internals_from(const Ref<Image> &p_image) {
-		ERR_FAIL_COND_MSG(p_image.is_null(), "It's not a reference to a valid Image object.");
+		ERR_FAIL_COND_MSG(p_image.is_null(), "Cannot copy image internals: invalid Image object.");
 		format = p_image->format;
 		width = p_image->width;
 		height = p_image->height;
@@ -428,5 +461,6 @@ VARIANT_ENUM_CAST(Image::CompressSource)
 VARIANT_ENUM_CAST(Image::UsedChannels)
 VARIANT_ENUM_CAST(Image::AlphaMode)
 VARIANT_ENUM_CAST(Image::RoughnessChannel)
+VARIANT_ENUM_CAST(Image::ASTCFormat)
 
 #endif // IMAGE_H

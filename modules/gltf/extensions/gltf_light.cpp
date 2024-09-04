@@ -1,34 +1,36 @@
-/*************************************************************************/
-/*  gltf_light.cpp                                                       */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  gltf_light.cpp                                                        */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "gltf_light.h"
+
+#include "scene/3d/light_3d.h"
 
 void GLTFLight::_bind_methods() {
 	ClassDB::bind_static_method("GLTFLight", D_METHOD("from_node", "light_node"), &GLTFLight::from_node);
@@ -49,6 +51,8 @@ void GLTFLight::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_inner_cone_angle", "inner_cone_angle"), &GLTFLight::set_inner_cone_angle);
 	ClassDB::bind_method(D_METHOD("get_outer_cone_angle"), &GLTFLight::get_outer_cone_angle);
 	ClassDB::bind_method(D_METHOD("set_outer_cone_angle", "outer_cone_angle"), &GLTFLight::set_outer_cone_angle);
+	ClassDB::bind_method(D_METHOD("get_additional_data", "extension_name"), &GLTFLight::get_additional_data);
+	ClassDB::bind_method(D_METHOD("set_additional_data", "extension_name", "additional_data"), &GLTFLight::set_additional_data);
 
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "color"), "set_color", "get_color"); // Color
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "intensity"), "set_intensity", "get_intensity"); // float
@@ -109,7 +113,7 @@ void GLTFLight::set_outer_cone_angle(float p_outer_cone_angle) {
 Ref<GLTFLight> GLTFLight::from_node(const Light3D *p_light) {
 	Ref<GLTFLight> l;
 	l.instantiate();
-	ERR_FAIL_COND_V_MSG(!p_light, l, "Tried to create a GLTFLight from a Light3D node, but the given node was null.");
+	ERR_FAIL_NULL_V_MSG(p_light, l, "Tried to create a GLTFLight from a Light3D node, but the given node was null.");
 	l->color = p_light->get_color();
 	if (cast_to<DirectionalLight3D>(p_light)) {
 		l->light_type = "directional";
@@ -166,7 +170,7 @@ Light3D *GLTFLight::to_node() const {
 }
 
 Ref<GLTFLight> GLTFLight::from_dictionary(const Dictionary p_dictionary) {
-	ERR_FAIL_COND_V_MSG(!p_dictionary.has("type"), Ref<GLTFLight>(), "Failed to parse GLTF light, missing required field 'type'.");
+	ERR_FAIL_COND_V_MSG(!p_dictionary.has("type"), Ref<GLTFLight>(), "Failed to parse glTF light, missing required field 'type'.");
 	Ref<GLTFLight> light;
 	light.instantiate();
 	const String &type = p_dictionary["type"];
@@ -177,7 +181,7 @@ Ref<GLTFLight> GLTFLight::from_dictionary(const Dictionary p_dictionary) {
 		if (arr.size() == 3) {
 			light->color = Color(arr[0], arr[1], arr[2]).linear_to_srgb();
 		} else {
-			ERR_PRINT("Error parsing GLTF light: The color must have exactly 3 numbers.");
+			ERR_PRINT("Error parsing glTF light: The color must have exactly 3 numbers.");
 		}
 	}
 	if (p_dictionary.has("intensity")) {
@@ -191,10 +195,10 @@ Ref<GLTFLight> GLTFLight::from_dictionary(const Dictionary p_dictionary) {
 		light->inner_cone_angle = spot["innerConeAngle"];
 		light->outer_cone_angle = spot["outerConeAngle"];
 		if (light->inner_cone_angle >= light->outer_cone_angle) {
-			ERR_PRINT("Error parsing GLTF light: The inner angle must be smaller than the outer angle.");
+			ERR_PRINT("Error parsing glTF light: The inner angle must be smaller than the outer angle.");
 		}
 	} else if (type != "point" && type != "directional") {
-		ERR_PRINT("Error parsing GLTF light: Light type '" + type + "' is unknown.");
+		ERR_PRINT("Error parsing glTF light: Light type '" + type + "' is unknown.");
 	}
 	return light;
 }
@@ -217,4 +221,12 @@ Dictionary GLTFLight::to_dictionary() const {
 	d["intensity"] = intensity;
 	d["range"] = range;
 	return d;
+}
+
+Variant GLTFLight::get_additional_data(const StringName &p_extension_name) {
+	return additional_data[p_extension_name];
+}
+
+void GLTFLight::set_additional_data(const StringName &p_extension_name, Variant p_additional_data) {
+	additional_data[p_extension_name] = p_additional_data;
 }

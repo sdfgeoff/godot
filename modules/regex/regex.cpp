@@ -1,34 +1,36 @@
-/*************************************************************************/
-/*  regex.cpp                                                            */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  regex.cpp                                                             */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "regex.h"
+#include "regex.compat.inc"
+
 #include "core/os/memory.h"
 
 extern "C" {
@@ -40,7 +42,9 @@ static void *_regex_malloc(PCRE2_SIZE size, void *user) {
 }
 
 static void _regex_free(void *ptr, void *user) {
-	memfree(ptr);
+	if (ptr) {
+		memfree(ptr);
+	}
 }
 
 int RegExMatch::_find(const Variant &p_name) const {
@@ -50,9 +54,8 @@ int RegExMatch::_find(const Variant &p_name) const {
 			return -1;
 		}
 		return i;
-
-	} else if (p_name.get_type() == Variant::STRING) {
-		HashMap<String, int>::ConstIterator found = names.find((String)p_name);
+	} else if (p_name.is_string()) {
+		HashMap<String, int>::ConstIterator found = names.find(p_name);
 		if (found) {
 			return found->value;
 		}
@@ -159,10 +162,10 @@ void RegEx::_pattern_info(uint32_t what, void *where) const {
 	pcre2_pattern_info_32((pcre2_code_32 *)code, what, where);
 }
 
-Ref<RegEx> RegEx::create_from_string(const String &p_pattern) {
+Ref<RegEx> RegEx::create_from_string(const String &p_pattern, bool p_show_error) {
 	Ref<RegEx> ret;
 	ret.instantiate();
-	ret->compile(p_pattern);
+	ret->compile(p_pattern, p_show_error);
 	return ret;
 }
 
@@ -173,7 +176,7 @@ void RegEx::clear() {
 	}
 }
 
-Error RegEx::compile(const String &p_pattern) {
+Error RegEx::compile(const String &p_pattern, bool p_show_error) {
 	pattern = p_pattern;
 	clear();
 
@@ -190,10 +193,12 @@ Error RegEx::compile(const String &p_pattern) {
 	pcre2_compile_context_free_32(cctx);
 
 	if (!code) {
-		PCRE2_UCHAR32 buf[256];
-		pcre2_get_error_message_32(err, buf, 256);
-		String message = String::num(offset) + ": " + String((const char32_t *)buf);
-		ERR_PRINT(message.utf8());
+		if (p_show_error) {
+			PCRE2_UCHAR32 buf[256];
+			pcre2_get_error_message_32(err, buf, 256);
+			String message = String::num(offset) + ": " + String((const char32_t *)buf);
+			ERR_PRINT(message.utf8());
+		}
 		return FAILED;
 	}
 	return OK;
@@ -268,16 +273,18 @@ Ref<RegExMatch> RegEx::search(const String &p_subject, int p_offset, int p_end) 
 TypedArray<RegExMatch> RegEx::search_all(const String &p_subject, int p_offset, int p_end) const {
 	ERR_FAIL_COND_V_MSG(p_offset < 0, Array(), "RegEx search offset must be >= 0");
 
-	int last_end = -1;
+	int last_end = 0;
 	TypedArray<RegExMatch> result;
 	Ref<RegExMatch> match = search(p_subject, p_offset, p_end);
+
 	while (match.is_valid()) {
-		if (last_end == match->get_end(0)) {
-			break;
-		}
-		result.push_back(match);
 		last_end = match->get_end(0);
-		match = search(p_subject, match->get_end(0), p_end);
+		if (match->get_start(0) == last_end) {
+			last_end++;
+		}
+
+		result.push_back(match);
+		match = search(p_subject, last_end, p_end);
 	}
 	return result;
 }
@@ -330,7 +337,7 @@ String RegEx::sub(const String &p_subject, const String &p_replacement, bool p_a
 		return String();
 	}
 
-	return String(output.ptr(), olength);
+	return String(output.ptr(), olength) + p_subject.substr(length);
 }
 
 bool RegEx::is_valid() const {
@@ -366,7 +373,7 @@ PackedStringArray RegEx::get_names() const {
 
 	for (uint32_t i = 0; i < count; i++) {
 		String name = &table[i * entry_size + 1];
-		if (result.find(name) < 0) {
+		if (!result.has(name)) {
 			result.append(name);
 		}
 	}
@@ -391,10 +398,10 @@ RegEx::~RegEx() {
 }
 
 void RegEx::_bind_methods() {
-	ClassDB::bind_static_method("RegEx", D_METHOD("create_from_string", "pattern"), &RegEx::create_from_string);
+	ClassDB::bind_static_method("RegEx", D_METHOD("create_from_string", "pattern", "show_error"), &RegEx::create_from_string, DEFVAL(true));
 
 	ClassDB::bind_method(D_METHOD("clear"), &RegEx::clear);
-	ClassDB::bind_method(D_METHOD("compile", "pattern"), &RegEx::compile);
+	ClassDB::bind_method(D_METHOD("compile", "pattern", "show_error"), &RegEx::compile, DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("search", "subject", "offset", "end"), &RegEx::search, DEFVAL(0), DEFVAL(-1));
 	ClassDB::bind_method(D_METHOD("search_all", "subject", "offset", "end"), &RegEx::search_all, DEFVAL(0), DEFVAL(-1));
 	ClassDB::bind_method(D_METHOD("sub", "subject", "replacement", "all", "offset", "end"), &RegEx::sub, DEFVAL(false), DEFVAL(0), DEFVAL(-1));

@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  rid_owner.h                                                          */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  rid_owner.h                                                           */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef RID_OWNER_H
 #define RID_OWNER_H
@@ -67,7 +67,7 @@ public:
 	virtual ~RID_AllocBase() {}
 };
 
-template <class T, bool THREAD_SAFE = false>
+template <typename T, bool THREAD_SAFE = false>
 class RID_Alloc : public RID_AllocBase {
 	T **chunks = nullptr;
 	uint32_t **free_list_chunks = nullptr;
@@ -82,7 +82,7 @@ class RID_Alloc : public RID_AllocBase {
 	mutable SpinLock spin_lock;
 
 	_FORCE_INLINE_ RID _allocate_rid() {
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.lock();
 		}
 
@@ -117,6 +117,7 @@ class RID_Alloc : public RID_AllocBase {
 		uint32_t free_element = free_index % elements_in_chunk;
 
 		uint32_t validator = (uint32_t)(_gen_id() & 0x7FFFFFFF);
+		CRASH_COND_MSG(validator == 0x7FFFFFFF, "Overflow in RID validator");
 		uint64_t id = validator;
 		id <<= 32;
 		id |= free_index;
@@ -127,7 +128,7 @@ class RID_Alloc : public RID_AllocBase {
 
 		alloc_count++;
 
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.unlock();
 		}
 
@@ -155,14 +156,14 @@ public:
 		if (p_rid == RID()) {
 			return nullptr;
 		}
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.lock();
 		}
 
 		uint64_t id = p_rid.get_id();
 		uint32_t idx = uint32_t(id & 0xFFFFFFFF);
 		if (unlikely(idx >= max_alloc)) {
-			if (THREAD_SAFE) {
+			if constexpr (THREAD_SAFE) {
 				spin_lock.unlock();
 			}
 			return nullptr;
@@ -175,24 +176,23 @@ public:
 
 		if (unlikely(p_initialize)) {
 			if (unlikely(!(validator_chunks[idx_chunk][idx_element] & 0x80000000))) {
-				if (THREAD_SAFE) {
+				if constexpr (THREAD_SAFE) {
 					spin_lock.unlock();
 				}
 				ERR_FAIL_V_MSG(nullptr, "Initializing already initialized RID");
 			}
 
 			if (unlikely((validator_chunks[idx_chunk][idx_element] & 0x7FFFFFFF) != validator)) {
-				if (THREAD_SAFE) {
+				if constexpr (THREAD_SAFE) {
 					spin_lock.unlock();
 				}
 				ERR_FAIL_V_MSG(nullptr, "Attempting to initialize the wrong RID");
-				return nullptr;
 			}
 
 			validator_chunks[idx_chunk][idx_element] &= 0x7FFFFFFF; //initialized
 
 		} else if (unlikely(validator_chunks[idx_chunk][idx_element] != validator)) {
-			if (THREAD_SAFE) {
+			if constexpr (THREAD_SAFE) {
 				spin_lock.unlock();
 			}
 			if ((validator_chunks[idx_chunk][idx_element] & 0x80000000) && validator_chunks[idx_chunk][idx_element] != 0xFFFFFFFF) {
@@ -203,7 +203,7 @@ public:
 
 		T *ptr = &chunks[idx_chunk][idx_element];
 
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.unlock();
 		}
 
@@ -211,24 +211,24 @@ public:
 	}
 	void initialize_rid(RID p_rid) {
 		T *mem = get_or_null(p_rid, true);
-		ERR_FAIL_COND(!mem);
+		ERR_FAIL_NULL(mem);
 		memnew_placement(mem, T);
 	}
 	void initialize_rid(RID p_rid, const T &p_value) {
 		T *mem = get_or_null(p_rid, true);
-		ERR_FAIL_COND(!mem);
+		ERR_FAIL_NULL(mem);
 		memnew_placement(mem, T(p_value));
 	}
 
 	_FORCE_INLINE_ bool owns(const RID &p_rid) const {
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.lock();
 		}
 
 		uint64_t id = p_rid.get_id();
 		uint32_t idx = uint32_t(id & 0xFFFFFFFF);
 		if (unlikely(idx >= max_alloc)) {
-			if (THREAD_SAFE) {
+			if constexpr (THREAD_SAFE) {
 				spin_lock.unlock();
 			}
 			return false;
@@ -239,9 +239,9 @@ public:
 
 		uint32_t validator = uint32_t(id >> 32);
 
-		bool owned = (validator_chunks[idx_chunk][idx_element] & 0x7FFFFFFF) == validator;
+		bool owned = (validator != 0x7FFFFFFF) && (validator_chunks[idx_chunk][idx_element] & 0x7FFFFFFF) == validator;
 
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.unlock();
 		}
 
@@ -249,14 +249,14 @@ public:
 	}
 
 	_FORCE_INLINE_ void free(const RID &p_rid) {
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.lock();
 		}
 
 		uint64_t id = p_rid.get_id();
 		uint32_t idx = uint32_t(id & 0xFFFFFFFF);
 		if (unlikely(idx >= max_alloc)) {
-			if (THREAD_SAFE) {
+			if constexpr (THREAD_SAFE) {
 				spin_lock.unlock();
 			}
 			ERR_FAIL();
@@ -267,12 +267,12 @@ public:
 
 		uint32_t validator = uint32_t(id >> 32);
 		if (unlikely(validator_chunks[idx_chunk][idx_element] & 0x80000000)) {
-			if (THREAD_SAFE) {
+			if constexpr (THREAD_SAFE) {
 				spin_lock.unlock();
 			}
-			ERR_FAIL_MSG("Attempted to free an uninitialized or invalid RID");
+			ERR_FAIL_MSG("Attempted to free an uninitialized or invalid RID.");
 		} else if (unlikely(validator_chunks[idx_chunk][idx_element] != validator)) {
-			if (THREAD_SAFE) {
+			if constexpr (THREAD_SAFE) {
 				spin_lock.unlock();
 			}
 			ERR_FAIL();
@@ -284,7 +284,7 @@ public:
 		alloc_count--;
 		free_list_chunks[alloc_count / elements_in_chunk][alloc_count % elements_in_chunk] = idx;
 
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.unlock();
 		}
 	}
@@ -293,7 +293,7 @@ public:
 		return alloc_count;
 	}
 	void get_owned_list(List<RID> *p_owned) const {
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.lock();
 		}
 		for (size_t i = 0; i < max_alloc; i++) {
@@ -302,14 +302,14 @@ public:
 				p_owned->push_back(_make_from_id((validator << 32) | i));
 			}
 		}
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.unlock();
 		}
 	}
 
 	//used for fast iteration in the elements or RIDs
 	void fill_owned_buffer(RID *p_rid_buffer) const {
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.lock();
 		}
 		uint32_t idx = 0;
@@ -320,7 +320,7 @@ public:
 				idx++;
 			}
 		}
-		if (THREAD_SAFE) {
+		if constexpr (THREAD_SAFE) {
 			spin_lock.unlock();
 		}
 	}
@@ -364,7 +364,7 @@ public:
 	}
 };
 
-template <class T, bool THREAD_SAFE = false>
+template <typename T, bool THREAD_SAFE = false>
 class RID_PtrOwner {
 	RID_Alloc<T *, THREAD_SAFE> alloc;
 
@@ -391,7 +391,7 @@ public:
 
 	_FORCE_INLINE_ void replace(const RID &p_rid, T *p_new_ptr) {
 		T **ptr = alloc.get_or_null(p_rid);
-		ERR_FAIL_COND(!ptr);
+		ERR_FAIL_NULL(ptr);
 		*ptr = p_new_ptr;
 	}
 
@@ -423,7 +423,7 @@ public:
 			alloc(p_target_chunk_byte_size) {}
 };
 
-template <class T, bool THREAD_SAFE = false>
+template <typename T, bool THREAD_SAFE = false>
 class RID_Owner {
 	RID_Alloc<T, THREAD_SAFE> alloc;
 

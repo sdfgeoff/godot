@@ -1,50 +1,59 @@
-/*************************************************************************/
-/*  material_editor_plugin.cpp                                           */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  material_editor_plugin.cpp                                            */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "material_editor_plugin.h"
 
 #include "core/config/project_settings.h"
 #include "editor/editor_node.h"
-#include "editor/editor_scale.h"
 #include "editor/editor_settings.h"
+#include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
+#include "editor/themes/editor_scale.h"
+#include "scene/3d/camera_3d.h"
+#include "scene/3d/light_3d.h"
+#include "scene/3d/mesh_instance_3d.h"
+#include "scene/gui/box_container.h"
+#include "scene/gui/button.h"
+#include "scene/gui/color_rect.h"
+#include "scene/gui/label.h"
 #include "scene/gui/subviewport_container.h"
-#include "scene/resources/fog_material.h"
+#include "scene/main/viewport.h"
+#include "scene/resources/3d/fog_material.h"
+#include "scene/resources/3d/sky_material.h"
 #include "scene/resources/particle_process_material.h"
-#include "scene/resources/sky_material.h"
 
 void MaterialEditor::gui_input(const Ref<InputEvent> &p_event) {
 	ERR_FAIL_COND(p_event.is_null());
 
 	Ref<InputEventMouseMotion> mm = p_event;
-	if (mm.is_valid() && (mm->get_button_mask() & MouseButton::MASK_LEFT) != MouseButton::NONE) {
+	if (mm.is_valid() && (mm->get_button_mask().has_flag(MouseButtonMask::LEFT))) {
 		rot.x -= mm->get_relative().y * 0.01;
 		rot.y -= mm->get_relative().x * 0.01;
 
@@ -56,36 +65,32 @@ void MaterialEditor::gui_input(const Ref<InputEvent> &p_event) {
 void MaterialEditor::_update_theme_item_cache() {
 	Control::_update_theme_item_cache();
 
-	theme_cache.light_1_on = get_theme_icon(SNAME("MaterialPreviewLight1"), SNAME("EditorIcons"));
-	theme_cache.light_1_off = get_theme_icon(SNAME("MaterialPreviewLight1Off"), SNAME("EditorIcons"));
-	theme_cache.light_2_on = get_theme_icon(SNAME("MaterialPreviewLight2"), SNAME("EditorIcons"));
-	theme_cache.light_2_off = get_theme_icon(SNAME("MaterialPreviewLight2Off"), SNAME("EditorIcons"));
+	theme_cache.light_1_icon = get_editor_theme_icon(SNAME("MaterialPreviewLight1"));
+	theme_cache.light_2_icon = get_editor_theme_icon(SNAME("MaterialPreviewLight2"));
 
-	theme_cache.sphere_on = get_theme_icon(SNAME("MaterialPreviewSphere"), SNAME("EditorIcons"));
-	theme_cache.sphere_off = get_theme_icon(SNAME("MaterialPreviewSphereOff"), SNAME("EditorIcons"));
-	theme_cache.box_on = get_theme_icon(SNAME("MaterialPreviewCube"), SNAME("EditorIcons"));
-	theme_cache.box_off = get_theme_icon(SNAME("MaterialPreviewCubeOff"), SNAME("EditorIcons"));
+	theme_cache.sphere_icon = get_editor_theme_icon(SNAME("MaterialPreviewSphere"));
+	theme_cache.box_icon = get_editor_theme_icon(SNAME("MaterialPreviewCube"));
 
-	theme_cache.checkerboard = get_theme_icon(SNAME("Checkerboard"), SNAME("EditorIcons"));
+	theme_cache.checkerboard = get_editor_theme_icon(SNAME("Checkerboard"));
 }
 
 void MaterialEditor::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_THEME_CHANGED: {
-			light_1_switch->set_normal_texture(theme_cache.light_1_on);
-			light_1_switch->set_pressed_texture(theme_cache.light_1_off);
-			light_2_switch->set_normal_texture(theme_cache.light_2_on);
-			light_2_switch->set_pressed_texture(theme_cache.light_2_off);
+			light_1_switch->set_icon(theme_cache.light_1_icon);
+			light_2_switch->set_icon(theme_cache.light_2_icon);
 
-			sphere_switch->set_normal_texture(theme_cache.sphere_off);
-			sphere_switch->set_pressed_texture(theme_cache.sphere_on);
-			box_switch->set_normal_texture(theme_cache.box_off);
-			box_switch->set_pressed_texture(theme_cache.box_on);
+			sphere_switch->set_icon(theme_cache.sphere_icon);
+			box_switch->set_icon(theme_cache.box_icon);
+
+			error_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("error_color"), EditorStringName(Editor)));
 		} break;
 
 		case NOTIFICATION_DRAW: {
-			Size2 size = get_size();
-			draw_texture_rect(theme_cache.checkerboard, Rect2(Point2(), size), true);
+			if (!is_unsupported_shader_mode) {
+				Size2 size = get_size();
+				draw_texture_rect(theme_cache.checkerboard, Rect2(Point2(), size), true);
+			}
 		} break;
 	}
 }
@@ -100,16 +105,20 @@ void MaterialEditor::_update_rotation() {
 void MaterialEditor::edit(Ref<Material> p_material, const Ref<Environment> &p_env) {
 	material = p_material;
 	camera->set_environment(p_env);
+
+	is_unsupported_shader_mode = false;
 	if (!material.is_null()) {
 		Shader::Mode mode = p_material->get_shader_mode();
 		switch (mode) {
 			case Shader::MODE_CANVAS_ITEM:
+				layout_error->hide();
 				layout_3d->hide();
 				layout_2d->show();
 				vc->hide();
 				rect_instance->set_material(material);
 				break;
 			case Shader::MODE_SPATIAL:
+				layout_error->hide();
 				layout_2d->hide();
 				layout_3d->show();
 				vc->show();
@@ -117,6 +126,11 @@ void MaterialEditor::edit(Ref<Material> p_material, const Ref<Environment> &p_en
 				box_instance->set_material_override(material);
 				break;
 			default:
+				layout_error->show();
+				layout_2d->hide();
+				layout_3d->hide();
+				vc->hide();
+				is_unsupported_shader_mode = true;
 				break;
 		}
 	} else {
@@ -128,38 +142,46 @@ void MaterialEditor::edit(Ref<Material> p_material, const Ref<Environment> &p_en
 	_update_rotation();
 }
 
-void MaterialEditor::_button_pressed(Node *p_button) {
-	if (p_button == light_1_switch) {
-		light1->set_visible(!light_1_switch->is_pressed());
-	}
+void MaterialEditor::_on_light_1_switch_pressed() {
+	light1->set_visible(light_1_switch->is_pressed());
+}
 
-	if (p_button == light_2_switch) {
-		light2->set_visible(!light_2_switch->is_pressed());
-	}
+void MaterialEditor::_on_light_2_switch_pressed() {
+	light2->set_visible(light_2_switch->is_pressed());
+}
 
-	if (p_button == box_switch) {
-		box_instance->show();
-		sphere_instance->hide();
-		box_switch->set_pressed(true);
-		sphere_switch->set_pressed(false);
-		EditorSettings::get_singleton()->set_project_metadata("inspector_options", "material_preview_on_sphere", false);
-	}
+void MaterialEditor::_on_sphere_switch_pressed() {
+	box_instance->hide();
+	sphere_instance->show();
+	box_switch->set_pressed(false);
+	sphere_switch->set_pressed(true);
+	EditorSettings::get_singleton()->set_project_metadata("inspector_options", "material_preview_on_sphere", true);
+}
 
-	if (p_button == sphere_switch) {
-		box_instance->hide();
-		sphere_instance->show();
-		box_switch->set_pressed(false);
-		sphere_switch->set_pressed(true);
-		EditorSettings::get_singleton()->set_project_metadata("inspector_options", "material_preview_on_sphere", true);
-	}
+void MaterialEditor::_on_box_switch_pressed() {
+	box_instance->show();
+	sphere_instance->hide();
+	box_switch->set_pressed(true);
+	sphere_switch->set_pressed(false);
+	EditorSettings::get_singleton()->set_project_metadata("inspector_options", "material_preview_on_sphere", false);
 }
 
 MaterialEditor::MaterialEditor() {
-	// canvas item
+	// Canvas item
+
+	vc_2d = memnew(SubViewportContainer);
+	vc_2d->set_stretch(true);
+	add_child(vc_2d);
+	vc_2d->set_anchors_and_offsets_preset(PRESET_FULL_RECT);
+
+	viewport_2d = memnew(SubViewport);
+	vc_2d->add_child(viewport_2d);
+	viewport_2d->set_disable_input(true);
+	viewport_2d->set_transparent_background(true);
 
 	layout_2d = memnew(HBoxContainer);
 	layout_2d->set_alignment(BoxContainer::ALIGNMENT_CENTER);
-	add_child(layout_2d);
+	viewport_2d->add_child(layout_2d);
 	layout_2d->set_anchors_and_offsets_preset(PRESET_FULL_RECT);
 
 	rect_instance = memnew(ColorRect);
@@ -168,7 +190,21 @@ MaterialEditor::MaterialEditor() {
 
 	layout_2d->set_visible(false);
 
-	// spatial
+	layout_error = memnew(VBoxContainer);
+	layout_error->set_alignment(BoxContainer::ALIGNMENT_CENTER);
+	layout_error->set_anchors_and_offsets_preset(PRESET_FULL_RECT);
+
+	error_label = memnew(Label);
+	error_label->set_text(TTR("Preview is not available for this shader mode."));
+	error_label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
+	error_label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
+	error_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
+
+	layout_error->add_child(error_label);
+	layout_error->hide();
+	add_child(layout_error);
+
+	// Spatial
 
 	vc = memnew(SubViewportContainer);
 	vc->set_stretch(true);
@@ -230,32 +266,38 @@ MaterialEditor::MaterialEditor() {
 	VBoxContainer *vb_shape = memnew(VBoxContainer);
 	layout_3d->add_child(vb_shape);
 
-	sphere_switch = memnew(TextureButton);
+	sphere_switch = memnew(Button);
+	sphere_switch->set_theme_type_variation("PreviewLightButton");
 	sphere_switch->set_toggle_mode(true);
 	sphere_switch->set_pressed(true);
 	vb_shape->add_child(sphere_switch);
-	sphere_switch->connect("pressed", callable_mp(this, &MaterialEditor::_button_pressed).bind(sphere_switch));
+	sphere_switch->connect(SceneStringName(pressed), callable_mp(this, &MaterialEditor::_on_sphere_switch_pressed));
 
-	box_switch = memnew(TextureButton);
+	box_switch = memnew(Button);
+	box_switch->set_theme_type_variation("PreviewLightButton");
 	box_switch->set_toggle_mode(true);
 	box_switch->set_pressed(false);
 	vb_shape->add_child(box_switch);
-	box_switch->connect("pressed", callable_mp(this, &MaterialEditor::_button_pressed).bind(box_switch));
+	box_switch->connect(SceneStringName(pressed), callable_mp(this, &MaterialEditor::_on_box_switch_pressed));
 
 	layout_3d->add_spacer();
 
 	VBoxContainer *vb_light = memnew(VBoxContainer);
 	layout_3d->add_child(vb_light);
 
-	light_1_switch = memnew(TextureButton);
+	light_1_switch = memnew(Button);
+	light_1_switch->set_theme_type_variation("PreviewLightButton");
 	light_1_switch->set_toggle_mode(true);
+	light_1_switch->set_pressed(true);
 	vb_light->add_child(light_1_switch);
-	light_1_switch->connect("pressed", callable_mp(this, &MaterialEditor::_button_pressed).bind(light_1_switch));
+	light_1_switch->connect(SceneStringName(pressed), callable_mp(this, &MaterialEditor::_on_light_1_switch_pressed));
 
-	light_2_switch = memnew(TextureButton);
+	light_2_switch = memnew(Button);
+	light_2_switch->set_theme_type_variation("PreviewLightButton");
 	light_2_switch->set_toggle_mode(true);
+	light_2_switch->set_pressed(true);
 	vb_light->add_child(light_2_switch);
-	light_2_switch->connect("pressed", callable_mp(this, &MaterialEditor::_button_pressed).bind(light_2_switch));
+	light_2_switch->connect(SceneStringName(pressed), callable_mp(this, &MaterialEditor::_on_light_2_switch_pressed));
 
 	if (EditorSettings::get_singleton()->get_project_metadata("inspector_options", "material_preview_on_sphere", true)) {
 		box_instance->hide();
@@ -290,9 +332,9 @@ void EditorInspectorPluginMaterial::parse_begin(Object *p_object) {
 	add_custom_control(editor);
 }
 
-void EditorInspectorPluginMaterial::_undo_redo_inspector_callback(Object *p_undo_redo, Object *p_edited, String p_property, Variant p_new_value) {
-	Ref<EditorUndoRedoManager> undo_redo = Object::cast_to<EditorUndoRedoManager>(p_undo_redo);
-	ERR_FAIL_COND(!undo_redo.is_valid());
+void EditorInspectorPluginMaterial::_undo_redo_inspector_callback(Object *p_undo_redo, Object *p_edited, const String &p_property, const Variant &p_new_value) {
+	EditorUndoRedoManager *undo_redo = Object::cast_to<EditorUndoRedoManager>(p_undo_redo);
+	ERR_FAIL_NULL(undo_redo);
 
 	// For BaseMaterial3D, if a roughness or metallic textures is being assigned to an empty slot,
 	// set the respective metallic or roughness factor to 1.0 as a convenience feature
@@ -333,7 +375,7 @@ EditorInspectorPluginMaterial::EditorInspectorPluginMaterial() {
 	env->set_ambient_source(Environment::AMBIENT_SOURCE_SKY);
 	env->set_reflection_source(Environment::REFLECTION_SOURCE_SKY);
 
-	EditorNode::get_singleton()->get_editor_data().add_undo_redo_inspector_hook_callback(callable_mp(this, &EditorInspectorPluginMaterial::_undo_redo_inspector_callback));
+	EditorNode::get_editor_data().add_undo_redo_inspector_hook_callback(callable_mp(this, &EditorInspectorPluginMaterial::_undo_redo_inspector_callback));
 }
 
 MaterialEditorPlugin::MaterialEditorPlugin() {
